@@ -1,0 +1,25 @@
+[package]
+name = "emice"
+version = "0.1.0"
+description = "程序员小工具集合"
+authors = ["you"]
+license = ""
+repository = ""
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+tauri-plugin-shell = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+log = "0.4"
+env_logger = "0.10"
+
+[features]
+# this feature is used for production builds or when `devPath` points to the filesystem
+custom-protocol = ["tauri/custom-protocol"]

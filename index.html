@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emice Tools - 程序员工具箱</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Emice Tools</h1>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab active" data-tab="time">timestamp</button>
+            <button class="tab" data-tab="json">json</button>
+        </nav>
+
+        <main class="content">
+            <section id="time-tab" class="tab-content active">
+                <div class="time-tools">
+                    <div class="current-time-section">
+                        <h2>当前时间戳</h2>
+                        <div class="current-time-display">
+                            <div class="time-item">
+                                <span id="current-timestamp">-</span>
+                                <button class="copy-btn" data-target="current-timestamp" title="复制">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="convert-section">
+                        <h2>时间戳 → 时间</h2>
+                        <div class="convert-row">
+                            <input type="number" id="timestamp-input" placeholder="输入13位时间戳">
+                            <button id="convert-timestamp-btn">转换</button>
+                            <input type="text" id="timestamp-result" readonly placeholder="结果" value="-">
+                            <select id="timestamp-timezone" aria-label="时间戳转时间时区">
+                                <option value="">加载中...</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="convert-section">
+                        <h2>时间 → 时间戳</h2>
+                        <div class="convert-row">
+                            <input type="text" id="datetime-input" placeholder="yyyy-MM-dd HH:mm:ss">
+                            <button id="convert-datetime-btn">转换</button>
+                            <input type="text" id="datetime-result" readonly placeholder="结果" value="-">
+                            <select id="datetime-timezone" aria-label="时间转时间戳时区">
+                                <option value="">加载中...</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="json-tab" class="tab-content">
+                <div class="json-tools">
+                    <div class="json-search-row">
+                        <div class="json-search-input-wrap">
+                            <input id="json-search-input" type="text" placeholder="搜索 JSON 内容" />
+                            <span id="json-search-status" class="json-search-status"></span>
+                        </div>
+                        <button id="json-search-prev-btn" type="button" aria-label="上一个">↑</button>
+                        <button id="json-search-next-btn" type="button" aria-label="下一个">↓</button>
+                    </div>
+                    <div id="json-editor-container" class="json-editor-container"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script type="module" src="/main.js"></script>
+</body>
+</html>

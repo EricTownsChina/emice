@@ -1,0 +1,27 @@
+{
+  "name": "emice-tools",
+  "version": "0.1.0",
+  "description": "程序员小工具集合",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "fmt:check": "cargo fmt --all -- --check",
+    "fmt:fix": "cargo fmt --all",
+    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "check:frontend": "vite build",
+    "check": "npm run fmt:check && npm run lint:rust && npm run check:rust && npm run check:frontend"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "vite": "^5.4.21"
+  },
+  "dependencies": {
+    "jsoneditor": "^10.4.2"
+  }
+}
