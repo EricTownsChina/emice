@@ -26,7 +26,7 @@ struct CurrentTimeResult {
 fn get_current_time() -> CurrentTimeResult {
     let now = Utc::now();
     let local = Local::now();
-    
+
     CurrentTimeResult {
         timestamp_10: now.timestamp(),
         timestamp_13: now.timestamp_millis(),
@@ -37,31 +37,37 @@ fn get_current_time() -> CurrentTimeResult {
 
 // 从时间戳转换
 #[tauri::command]
-fn convert_from_timestamp(timestamp: i64, timezone_offset: Option<i32>) -> Result<TimeConversionResult, String> {
+fn convert_from_timestamp(
+    timestamp: i64,
+    timezone_offset: Option<i32>,
+) -> Result<TimeConversionResult, String> {
     // 判断是10位还是13位时间戳
     let dt = if timestamp > 9999999999 {
         // 13位时间戳（毫秒）
-        DateTime::from_timestamp_millis(timestamp)
-            .ok_or_else(|| "Invalid timestamp".to_string())?
+        DateTime::from_timestamp_millis(timestamp).ok_or_else(|| "Invalid timestamp".to_string())?
     } else {
         // 10位时间戳（秒）
-        DateTime::from_timestamp(timestamp, 0)
-            .ok_or_else(|| "Invalid timestamp".to_string())?
+        DateTime::from_timestamp(timestamp, 0).ok_or_else(|| "Invalid timestamp".to_string())?
     };
-    
+
     let utc_dt = dt.with_timezone(&Utc);
     let local_dt = dt.with_timezone(&Local);
-    
+
     let custom_dt = if let Some(offset) = timezone_offset {
         // 创建自定义时区（以小时为单位的偏移）
         let offset_seconds = offset * 3600;
         let custom_tz = chrono::FixedOffset::east_opt(offset_seconds)
             .ok_or_else(|| "Invalid timezone offset".to_string())?;
-        Some(utc_dt.with_timezone(&custom_tz).format("%Y-%m-%d %H:%M:%S %z").to_string())
+        Some(
+            utc_dt
+                .with_timezone(&custom_tz)
+                .format("%Y-%m-%d %H:%M:%S %z")
+                .to_string(),
+        )
     } else {
         None
     };
-    
+
     Ok(TimeConversionResult {
         timestamp_10: Some(utc_dt.timestamp()),
         timestamp_13: Some(utc_dt.timestamp_millis()),
@@ -88,7 +94,7 @@ fn convert_from_datetime(
             .map_err(|e| format!("Parse error: {}", e))?
             .with_timezone(&Utc)
     };
-    
+
     // 如果提供了时区偏移，应用它
     let dt = if let Some(offset) = timezone_offset {
         let offset_seconds = offset * 3600;
@@ -98,10 +104,10 @@ fn convert_from_datetime(
     } else {
         dt
     };
-    
+
     let utc_dt = dt.with_timezone(&Utc);
     let local_dt = dt.with_timezone(&Local);
-    
+
     Ok(TimeConversionResult {
         timestamp_10: Some(utc_dt.timestamp()),
         timestamp_13: Some(utc_dt.timestamp_millis()),
@@ -125,19 +131,21 @@ fn parse_datetime_auto(datetime_str: &str) -> Result<DateTime<Utc>, String> {
         "%Y-%m-%d %H:%M",
         "%Y-%m-%d",
     ];
-    
+
     for format in &formats {
         if let Ok(dt) = DateTime::parse_from_str(datetime_str, format) {
             return Ok(dt.with_timezone(&Utc));
         }
         if let Ok(dt) = NaiveDateTime::parse_from_str(datetime_str, format) {
             // 假设是本地时间，转换为 UTC
-            return Ok(Local.from_local_datetime(&dt).single()
+            return Ok(Local
+                .from_local_datetime(&dt)
+                .single()
                 .ok_or_else(|| "Invalid datetime".to_string())?
                 .with_timezone(&Utc));
         }
     }
-    
+
     Err("Unable to parse datetime string".to_string())
 }
 
@@ -151,4 +159,3 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

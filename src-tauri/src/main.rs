@@ -169,7 +169,6 @@ fn get_timezone_list() -> Vec<TimeZoneInfo> {
 #[tauri::command]
 fn get_current_time(timezone_name: Option<String>) -> Result<CurrentTimeResult, String> {
     let timezone_name = resolve_timezone_name(timezone_name);
-    info!("调用 get_current_time: timezone_name={}", timezone_name);
     let _offset_minutes = timezone_offset_minutes(&timezone_name)?;
 
     let now = Utc::now();

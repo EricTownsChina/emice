@@ -1,6 +1,6 @@
 [package]
 name = "emice"
-version = "0.1.0"
+version = "0.1.1"
 description = "牛马小工具"
 authors = ["you"]
 license = ""
