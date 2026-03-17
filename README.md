@@ -1,6 +1,6 @@
-# Emice Tools
+# emice
 
-`Emice Tools` 是一个基于 Tauri 2 的桌面工具应用，当前提供 `timestamp` 与 `json` 两个模块。
+`emice` 是一个基于 Tauri 2 的桌面工具应用，当前提供 `timestamp` 与 `json` 两个模块。
 
 ## 当前功能
 
@@ -15,7 +15,7 @@
 
 ### 2) json
 
-- 使用 `jsoneditor`（https://github.com/josdejong/jsoneditor）替代手写 JSON 渲染
+- 使用 `jsoneditor`(https://github.com/josdejong/jsoneditor)替代手写 JSON 渲染
 - 支持 `tree`、`code`、`text`、`preview` 多视图
 - 自定义统一搜索栏：支持上一个/下一个、回车导航、匹配计数
 
@@ -45,8 +45,14 @@ npm run tauri:dev
 # 前端构建
 npm run build
 
-# 桌面打包
+# 桌面打包（默认）
 npm run tauri:build
+
+# macOS 仅生成 dmg
+npm run tauri -- build --bundles dmg
+
+# Windows 不生成 msi（仅构建，不打包）
+npm run tauri -- build --bundles none
 
 # 一键质量检查
 npm run check
