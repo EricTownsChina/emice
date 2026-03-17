@@ -219,7 +219,6 @@ fn main() {
     info!("启动 Emice Tools 应用");
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             get_timezone_list,
             get_current_time,

@@ -8,10 +8,6 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Emice Tools</h1>
-        </header>
-
         <nav class="tabs">
             <button class="tab active" data-tab="time">timestamp</button>
             <button class="tab" data-tab="json">json</button>
@@ -66,10 +62,14 @@
                     <div class="json-search-row">
                         <div class="json-search-input-wrap">
                             <input id="json-search-input" type="text" placeholder="搜索 JSON 内容" />
-                            <span id="json-search-status" class="json-search-status"></span>
+                            <div class="json-search-actions" aria-hidden="true">
+                                <span id="json-search-status" class="json-search-status"></span>
+                                <div class="json-search-controls">
+                                    <button id="json-search-prev-btn" type="button" class="json-search-nav-btn" aria-label="上一个">↑</button>
+                                    <button id="json-search-next-btn" type="button" class="json-search-nav-btn" aria-label="下一个">↓</button>
+                                </div>
+                            </div>
                         </div>
-                        <button id="json-search-prev-btn" type="button" aria-label="上一个">↑</button>
-                        <button id="json-search-next-btn" type="button" aria-label="下一个">↓</button>
                     </div>
                     <div id="json-editor-container" class="json-editor-container"></div>
                 </div>

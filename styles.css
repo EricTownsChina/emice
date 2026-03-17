@@ -4,29 +4,30 @@
     box-sizing: border-box;
 }
 
+html,
+body {
+    height: 100%;
+}
+
 body {
     min-height: 100vh;
     background: #f3f3f3;
     color: #222;
     font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     line-height: 1.5;
+    display: flex;
 }
 
 .container {
     max-width: 1080px;
     margin: 0 auto;
     padding: 20px 14px 28px;
+    min-height: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
 }
 
-header {
-    margin-bottom: 12px;
-}
-
-header h1 {
-    font-size: 24px;
-    font-weight: 600;
-    color: #1f1f1f;
-}
 
 .tabs {
     display: flex;
@@ -35,6 +36,13 @@ header h1 {
     margin-bottom: 12px;
     border-radius: 8px;
     overflow: hidden;
+}
+
+.content {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .tab {
@@ -59,10 +67,14 @@ header h1 {
 
 .tab-content {
     display: none;
+    flex: 1 1 auto;
 }
 
 .tab-content.active {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .time-tools,
@@ -71,12 +83,17 @@ header h1 {
     border: 1px solid #d8d8d8;
     padding: 16px;
     border-radius: 10px;
+    height: 100%;
 }
 
 .json-tools {
     background: transparent;
     border: 0;
     padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
 }
 
 .json-search-row {
@@ -97,32 +114,25 @@ header h1 {
     height: 34px;
     border: 1px solid #cfcfcf;
     border-radius: 8px;
-    padding: 0 74px 0 10px;
+    padding: 0 160px 0 10px;
     font-size: 13px;
 }
 
-.json-search-row button {
-    height: 34px;
-    width: 34px;
-    border: 1px solid #cfcfcf;
-    border-radius: 8px;
-    background: #fff;
-    color: #333;
-    padding: 0;
-    font-size: 13px;
-    cursor: pointer;
-}
-
-.json-search-row button:hover {
-    border-color: #2f80ed;
-    color: #2f80ed;
-}
-
-.json-search-status {
+.json-search-actions {
     position: absolute;
     right: 8px;
     top: 50%;
     transform: translateY(-50%);
+    display: none;
+    align-items: center;
+    gap: 6px;
+}
+
+.json-search-input-wrap.has-query .json-search-actions {
+    display: inline-flex;
+}
+
+.json-search-status {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -138,6 +148,30 @@ header h1 {
 
 .json-search-status:empty {
     display: none;
+}
+
+.json-search-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.json-search-nav-btn {
+    height: 20px;
+    min-width: 20px;
+    border: 0;
+    border-radius: 999px;
+    background: #f3f4f6;
+    color: #6b7280;
+    font-size: 11px;
+    line-height: 1;
+    padding: 0 6px;
+    cursor: pointer;
+}
+
+.json-search-nav-btn:hover {
+    background: #e6e7ea;
+    color: #4b5563;
 }
 
 .timezone-selector {
@@ -319,7 +353,8 @@ header h1 {
 }
 
 .json-editor-container {
-    height: 560px;
+    flex: 1 1 auto;
+    min-height: 0;
     border-radius: 10px;
     overflow: hidden;
 }
@@ -382,22 +417,14 @@ mark.json-search-mark {
         gap: 6px;
     }
 
-    .json-search-row button {
-        padding: 0 10px;
-    }
-
     .json-search-input-wrap input {
-        padding-right: 66px;
+        padding-right: 150px;
     }
 }
 
 @media (max-width: 640px) {
     .container {
         padding: 12px 10px 18px;
-    }
-
-    header h1 {
-        font-size: 20px;
     }
 
     .tabs {

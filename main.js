@@ -1,7 +1,20 @@
-import JSONEditor from 'jsoneditor';
-import 'jsoneditor/dist/jsoneditor.css';
+let jsonEditorModulePromise = null;
 
-const JSONEditorClass = JSONEditor.default || JSONEditor;
+function loadJsonEditorModule() {
+    if (jsonEditorModulePromise) {
+        return jsonEditorModulePromise;
+    }
+
+    jsonEditorModulePromise = Promise.all([
+        import('jsoneditor'),
+        import('jsoneditor/dist/jsoneditor.css'),
+    ]).then(([module]) => module.default || module).catch((error) => {
+        jsonEditorModulePromise = null;
+        throw error;
+    });
+
+    return jsonEditorModulePromise;
+}
 
 // 获取 Tauri API - Tauri 2.0 使用 window.__TAURI__
 function getInvoke() {
@@ -136,6 +149,13 @@ function startCurrentTimeTimer() {
     currentTimeTimer = setInterval(updateCurrentTime, 1000);
 }
 
+function stopCurrentTimeTimer() {
+    if (currentTimeTimer) {
+        clearInterval(currentTimeTimer);
+        currentTimeTimer = null;
+    }
+}
+
 async function convertTimestamp() {
     const input = document.getElementById("timestamp-input");
     const value = input.value.trim();
@@ -222,7 +242,7 @@ function setupTabSwitching() {
     const contents = document.querySelectorAll(".tab-content");
     
     tabs.forEach(tab => {
-        tab.addEventListener("click", () => {
+        tab.addEventListener("click", async () => {
             tabs.forEach(t => t.classList.remove("active"));
             contents.forEach(c => c.classList.remove("active"));
             
@@ -232,7 +252,13 @@ function setupTabSwitching() {
             
             const tabName = tab.dataset.tab;
             updateTheme(tabName);
+            if (tabName === 'time') {
+                startCurrentTimeTimer();
+            } else {
+                stopCurrentTimeTimer();
+            }
             if (tabName === 'json') {
+                await ensureJsonEditor();
                 requestAnimationFrame(() => {
                     focusJsonEditorCursor();
                 });
@@ -265,6 +291,18 @@ function setJsonSearchStatus(current = 0, total = 0) {
         return;
     }
     status.textContent = `${current}/${total}`;
+}
+
+function setJsonSearchQueryState(query) {
+    const wrapper = document.querySelector('.json-search-input-wrap');
+    if (!wrapper) {
+        return;
+    }
+    if (query) {
+        wrapper.classList.add('has-query');
+    } else {
+        wrapper.classList.remove('has-query');
+    }
 }
 
 function countSubstringMatches(content, query) {
@@ -517,6 +555,7 @@ function runJsonSearch(direction = 'next', keepFocus = false) {
     const searchInput = document.getElementById('json-search-input');
     const query = searchInput ? searchInput.value.trim() : '';
     if (!query) {
+        setJsonSearchQueryState('');
         jsonSearchState.query = '';
         jsonSearchState.previewIndex = -1;
         jsonSearchState.textIndex = -1;
@@ -529,6 +568,7 @@ function runJsonSearch(direction = 'next', keepFocus = false) {
     }
 
     resetJsonSearchStateIfQueryChanged(query);
+    setJsonSearchQueryState(query);
 
     const mode = typeof jsonEditor.getMode === 'function' ? jsonEditor.getMode() : 'tree';
 
@@ -597,7 +637,7 @@ function runJsonSearch(direction = 'next', keepFocus = false) {
     }
 }
 
-function setupJSONTools() {
+async function setupJSONTools() {
     const editorContainer = document.getElementById('json-editor-container');
     const searchInput = document.getElementById('json-search-input');
     const searchPrevBtn = document.getElementById('json-search-prev-btn');
@@ -606,6 +646,13 @@ function setupJSONTools() {
         console.error('找不到JSON编辑器容器');
         return;
     }
+
+    if (jsonEditor) {
+        return;
+    }
+
+    editorContainer.textContent = '';
+    const JSONEditorClass = await loadJsonEditorModule();
 
     jsonEditor = new JSONEditorClass(editorContainer, {
         mode: 'code',
@@ -626,7 +673,9 @@ function setupJSONTools() {
     }
     if (searchInput) {
         searchInput.addEventListener('input', () => {
-            if (!searchInput.value.trim()) {
+            const query = searchInput.value.trim();
+            setJsonSearchQueryState(query);
+            if (!query) {
                 setJsonSearchStatus(0, 0);
             }
         });
@@ -659,6 +708,26 @@ function setupJSONTools() {
     }, true);
 }
 
+async function ensureJsonEditor() {
+    if (jsonEditor) {
+        return;
+    }
+
+    const editorContainer = document.getElementById('json-editor-container');
+    if (editorContainer && !editorContainer.childNodes.length) {
+        editorContainer.textContent = '加载中...';
+    }
+
+    try {
+        await setupJSONTools();
+    } catch (error) {
+        console.error('JSON 编辑器初始化失败:', error);
+        if (editorContainer) {
+            editorContainer.textContent = '加载失败';
+        }
+    }
+}
+
 function initApp() {
     if (initialized) {
         console.warn('应用已经初始化，跳过重复初始化');
@@ -671,9 +740,7 @@ function initApp() {
     
     loadConversionTimezonePreference();
     loadTimezones();
-    startCurrentTimeTimer();
     setupTabSwitching();
-    setupJSONTools();
     
     document.getElementById("convert-timestamp-btn").addEventListener("click", convertTimestamp);
     document.getElementById("convert-datetime-btn").addEventListener("click", convertDatetime);
@@ -697,6 +764,24 @@ function initApp() {
             const targetId = btn.dataset.target;
             copyToClipboard(targetId);
         });
+    });
+
+    const activeTab = document.querySelector('.tab.active');
+    const activeTabName = activeTab ? activeTab.dataset.tab : '';
+    if (activeTabName === 'time') {
+        startCurrentTimeTimer();
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            stopCurrentTimeTimer();
+            return;
+        }
+
+        const currentActiveTab = document.querySelector('.tab.active');
+        if (currentActiveTab && currentActiveTab.dataset.tab === 'time') {
+            startCurrentTimeTimer();
+        }
     });
 }
 
