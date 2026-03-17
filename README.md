@@ -52,30 +52,6 @@ npm run tauri:build
 npm run check
 ```
 
-## Windows 打包与发布（Win10 / Win7）
-
-本项目已配置 GitHub Actions 工作流：`.github/workflows/windows-release.yml`。
-
-- 触发方式：
-  - 手动触发（`workflow_dispatch`）：仅构建并上传 Windows 安装包产物
-  - 打 tag 触发（`v*`）：构建后自动发布到 GitHub Release
-
-- 产物类型：
-  - `.exe`
-  - `.msi`
-  - `.zip`
-
-- 发布建议：
-  1. 先在 Win10 验证安装与运行
-  2. 再在 Win7 验证（需先安装 WebView2 Runtime）
-
-示例发布流程：
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
 ## 项目结构
 
 ```text
