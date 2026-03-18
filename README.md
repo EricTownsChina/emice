@@ -15,7 +15,7 @@
 
 ### 2) json
 
-- 使用 `jsoneditor`(https://github.com/josdejong/jsoneditor)替代手写 JSON 渲染
+- 使用 [`jsoneditor`](https://github.com/josdejong/jsoneditor) 替代手写 JSON 渲染
 - 支持 `tree`、`code`、`text`、`preview` 多视图
 - 自定义统一搜索栏：支持上一个/下一个、回车导航、匹配计数
 
