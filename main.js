@@ -1,20 +1,3 @@
-let jsonEditorModulePromise = null;
-
-function loadJsonEditorModule() {
-    if (jsonEditorModulePromise) {
-        return jsonEditorModulePromise;
-    }
-
-    jsonEditorModulePromise = Promise.all([
-        import('jsoneditor'),
-        import('jsoneditor/dist/jsoneditor.css'),
-    ]).then(([module]) => module.default || module).catch((error) => {
-        jsonEditorModulePromise = null;
-        throw error;
-    });
-
-    return jsonEditorModulePromise;
-}
 
 // 获取 Tauri API - Tauri 2.0 使用 window.__TAURI__
 function getInvoke() {
@@ -280,6 +263,376 @@ const jsonSearchState = {
     previewIndex: -1,
     textIndex: -1,
 };
+let jsonEditorReady = false;
+const jsonFoldState = {
+    formatted: false,
+    sourceText: '',
+    foldRanges: new Map(),
+    collapsedLines: new Set(),
+    lineMap: [],
+    visibleLines: [],
+};
+const gutterState = {
+    canvas: null,
+    ctx: null,
+    dpr: 1,
+    width: 0,
+    height: 0,
+    paddingTop: 12,
+    paddingRight: 6,
+    lineHeightPx: 20.8,
+    fontSizePx: 13,
+    foldColWidth: 16,
+    totalLines: 1,
+    fontFamily: '',
+    numberFont: '',
+    symbolFont: '',
+    cacheCanvas: null,
+    cacheCtx: null,
+    cacheDirty: true,
+    cacheEnabled: true,
+    maxCacheHeightCss: 20000,
+};
+let gutterRenderTimer = 0;
+let gutterRenderRaf = 0;
+
+function updateJsonEditorStats(value) {
+    const lineCount = document.getElementById('json-line-count');
+    const charCount = document.getElementById('json-char-count');
+    if (!lineCount || !charCount) {
+        return;
+    }
+
+    const content = value ?? '';
+    const lines = countLines(content);
+    lineCount.textContent = `${lines} 行`;
+    charCount.textContent = `${content.length} 字符`;
+}
+
+function countLines(text) {
+    if (!text) {
+        return 1;
+    }
+    let lines = 1;
+    for (let i = 0; i < text.length; i += 1) {
+        if (text.charCodeAt(i) === 10) {
+            lines += 1;
+        }
+    }
+    return lines;
+}
+
+function formatJsonText(rawText, pretty = true) {
+    if (!rawText) {
+        return '';
+    }
+    try {
+        const parsed = JSON.parse(rawText);
+        return pretty ? JSON.stringify(parsed, null, 2) : JSON.stringify(parsed);
+    } catch (_) {
+        return rawText;
+    }
+}
+
+function buildFoldRanges(text) {
+    const ranges = new Map();
+    const stack = [];
+    let line = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < text.length; i += 1) {
+        const char = text[i];
+
+        if (char === '\n') {
+            line += 1;
+            continue;
+        }
+
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+
+        if (char === '\\') {
+            escaped = true;
+            continue;
+        }
+
+        if (char === '"') {
+            inString = !inString;
+            continue;
+        }
+
+        if (inString) {
+            continue;
+        }
+
+        if (char === '{' || char === '[') {
+            stack.push({ char, line });
+        } else if (char === '}' || char === ']') {
+            const open = stack.pop();
+            if (open && open.line < line) {
+                ranges.set(open.line, { endLine: line });
+            }
+        }
+    }
+
+    return ranges;
+}
+
+function updateGutterMetrics(textarea) {
+    const style = window.getComputedStyle(textarea);
+    const fontSize = Number.parseFloat(style.fontSize) || 13;
+    let lineHeight = Number.parseFloat(style.lineHeight);
+    if (!Number.isFinite(lineHeight)) {
+        lineHeight = fontSize * 1.6;
+    }
+    const paddingTop = Number.parseFloat(style.paddingTop) || 12;
+    gutterState.fontSizePx = fontSize;
+    gutterState.lineHeightPx = lineHeight;
+    gutterState.paddingTop = paddingTop;
+    gutterState.fontFamily = style.fontFamily;
+    gutterState.numberFont = `${gutterState.fontSizePx}px ${gutterState.fontFamily}`;
+    gutterState.symbolFont = `${gutterState.fontSizePx + 2}px ${gutterState.fontFamily}`;
+}
+
+function markGutterCacheDirty() {
+    gutterState.cacheDirty = true;
+}
+
+function updateGutterCanvasSize() {
+    const canvas = gutterState.canvas;
+    const ctx = gutterState.ctx;
+    if (!canvas || !ctx) {
+        return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    if (gutterState.width === rect.width && gutterState.height === rect.height && gutterState.dpr === dpr) {
+        return;
+    }
+    gutterState.dpr = dpr;
+    gutterState.width = rect.width;
+    gutterState.height = rect.height;
+    canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+    canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    markGutterCacheDirty();
+}
+
+function refreshGutterLayout() {
+    const textarea = document.getElementById('json-editor-textarea');
+    if (!textarea) {
+        return;
+    }
+    updateGutterMetrics(textarea);
+    updateGutterCanvasSize();
+}
+
+function ensureGutterCache(totalLines) {
+    if (!gutterState.cacheDirty) {
+        return;
+    }
+
+    const width = gutterState.width;
+    const dpr = gutterState.dpr || 1;
+    const lineHeight = gutterState.lineHeightPx;
+    const paddingTop = gutterState.paddingTop;
+    const cacheHeightCss = Math.ceil(paddingTop * 2 + totalLines * lineHeight);
+
+    if (cacheHeightCss > gutterState.maxCacheHeightCss) {
+        gutterState.cacheEnabled = false;
+        return;
+    }
+
+    gutterState.cacheEnabled = true;
+
+    if (!gutterState.cacheCanvas) {
+        gutterState.cacheCanvas = document.createElement('canvas');
+        gutterState.cacheCtx = gutterState.cacheCanvas.getContext('2d');
+    }
+
+    const cacheCanvas = gutterState.cacheCanvas;
+    const cacheCtx = gutterState.cacheCtx;
+    if (!cacheCanvas || !cacheCtx) {
+        gutterState.cacheEnabled = false;
+        return;
+    }
+
+    cacheCanvas.width = Math.max(1, Math.floor(width * dpr));
+    cacheCanvas.height = Math.max(1, Math.floor(cacheHeightCss * dpr));
+    cacheCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cacheCtx.clearRect(0, 0, width, cacheHeightCss);
+
+    cacheCtx.font = gutterState.numberFont;
+    cacheCtx.textBaseline = 'top';
+    cacheCtx.textAlign = 'right';
+    cacheCtx.fillStyle = 'rgba(74, 100, 136, 0.7)';
+    const numberX = width - gutterState.foldColWidth - gutterState.paddingRight;
+
+    for (let lineIndex = 0; lineIndex < totalLines; lineIndex += 1) {
+        const y = paddingTop + lineIndex * lineHeight;
+        const textY = y + (lineHeight - gutterState.fontSizePx) / 2;
+        cacheCtx.fillText(`${lineIndex + 1}`, numberX, textY);
+    }
+
+    if (jsonFoldState.formatted) {
+        cacheCtx.font = gutterState.symbolFont;
+        cacheCtx.textAlign = 'center';
+        cacheCtx.fillStyle = '#4a6488';
+        const symbolX = width - gutterState.foldColWidth / 2;
+        for (let lineIndex = 0; lineIndex < totalLines; lineIndex += 1) {
+            const mapItem = jsonFoldState.lineMap[lineIndex];
+            const foldLine = mapItem?.foldLine;
+            if (!Number.isInteger(foldLine)) {
+                continue;
+            }
+            const isCollapsed = jsonFoldState.collapsedLines.has(foldLine);
+            const y = paddingTop + lineIndex * lineHeight;
+            const symbolY = y + (lineHeight - (gutterState.fontSizePx + 2)) / 2;
+            cacheCtx.fillText(isCollapsed ? '+' : '−', symbolX, symbolY);
+        }
+    }
+
+    gutterState.cacheDirty = false;
+}
+
+function renderGutter() {
+    const canvas = gutterState.canvas;
+    const ctx = gutterState.ctx;
+    const textarea = document.getElementById('json-editor-textarea');
+    if (!canvas || !ctx || !textarea) {
+        return;
+    }
+
+    if (!gutterState.numberFont) {
+        refreshGutterLayout();
+    }
+
+    const totalLines = jsonFoldState.formatted
+        ? (jsonFoldState.visibleLines.length || 1)
+        : (gutterState.totalLines || 1);
+    ensureGutterCache(totalLines);
+
+    const scrollTop = textarea.scrollTop;
+    const lineHeight = gutterState.lineHeightPx;
+    const paddingTop = gutterState.paddingTop;
+    const viewHeight = gutterState.height - paddingTop * 2;
+    const startLine = Math.max(0, Math.floor(scrollTop / lineHeight));
+    const endLine = Math.min(totalLines, startLine + Math.ceil(viewHeight / lineHeight) + 1);
+
+    ctx.clearRect(0, 0, gutterState.width, gutterState.height);
+
+    if (gutterState.cacheEnabled && gutterState.cacheCanvas) {
+        const srcYCss = Math.max(0, Math.min(scrollTop, Math.max(0, (gutterState.cacheCanvas.height / gutterState.dpr) - gutterState.height)));
+        const srcYPx = Math.floor(srcYCss * gutterState.dpr);
+        const srcWPx = gutterState.cacheCanvas.width;
+        const srcHPx = Math.floor(gutterState.height * gutterState.dpr);
+        ctx.drawImage(
+            gutterState.cacheCanvas,
+            0,
+            srcYPx,
+            srcWPx,
+            srcHPx,
+            0,
+            0,
+            gutterState.width,
+            gutterState.height,
+        );
+        return;
+    }
+
+    ctx.font = gutterState.numberFont;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(74, 100, 136, 0.7)';
+
+    const numberX = gutterState.width - gutterState.foldColWidth - gutterState.paddingRight;
+
+    for (let lineIndex = startLine; lineIndex < endLine; lineIndex += 1) {
+        const y = paddingTop + lineIndex * lineHeight - scrollTop;
+        const textY = y + (lineHeight - gutterState.fontSizePx) / 2;
+        const lineNumber = jsonFoldState.formatted && jsonFoldState.lineMap[lineIndex]
+            ? jsonFoldState.lineMap[lineIndex].sourceLine + 1
+            : lineIndex + 1;
+        ctx.fillText(`${lineNumber}`, numberX, textY);
+    }
+
+    if (jsonFoldState.formatted) {
+        ctx.font = gutterState.symbolFont;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#4a6488';
+        const symbolX = gutterState.width - gutterState.foldColWidth / 2;
+        for (let lineIndex = startLine; lineIndex < endLine; lineIndex += 1) {
+            const mapItem = jsonFoldState.lineMap[lineIndex];
+            const foldLine = mapItem?.foldLine;
+            if (!Number.isInteger(foldLine)) {
+                continue;
+            }
+            const isCollapsed = jsonFoldState.collapsedLines.has(foldLine);
+            const y = paddingTop + lineIndex * lineHeight - scrollTop;
+            const symbolY = y + (lineHeight - (gutterState.fontSizePx + 2)) / 2;
+            ctx.fillText(isCollapsed ? '+' : '−', symbolX, symbolY);
+        }
+    }
+}
+
+function scheduleGutterRenderDebounced() {
+    if (gutterRenderTimer) {
+        clearTimeout(gutterRenderTimer);
+    }
+    gutterRenderTimer = window.setTimeout(() => {
+        gutterRenderTimer = 0;
+        markGutterCacheDirty();
+        renderGutter();
+    }, 60);
+}
+
+function scheduleGutterRenderFrame() {
+    if (gutterRenderRaf) {
+        return;
+    }
+    gutterRenderRaf = window.requestAnimationFrame(() => {
+        gutterRenderRaf = 0;
+        renderGutter();
+    });
+}
+
+function renderFormattedView() {
+    const textarea = document.getElementById('json-editor-textarea');
+    if (!textarea) {
+        return;
+    }
+
+    const lines = jsonFoldState.sourceText.split(/\r?\n/);
+    const visibleLines = [];
+    const lineMap = [];
+
+    for (let i = 0; i < lines.length; i += 1) {
+        const range = jsonFoldState.foldRanges.get(i);
+        if (jsonFoldState.collapsedLines.has(i) && range) {
+            const trimmed = lines[i].trimEnd();
+            const collapsedLine = trimmed.endsWith('{') || trimmed.endsWith('[')
+                ? `${trimmed} ...`
+                : `${trimmed} ...`;
+            visibleLines.push(collapsedLine);
+            lineMap.push({ sourceLine: i, foldLine: i });
+            i = range.endLine;
+            continue;
+        }
+
+        visibleLines.push(lines[i]);
+        lineMap.push({ sourceLine: i, foldLine: range ? i : null });
+    }
+
+    jsonFoldState.lineMap = lineMap;
+    jsonFoldState.visibleLines = visibleLines;
+    textarea.value = visibleLines.join('\n');
+    updateJsonEditorStats(textarea.value);
+    markGutterCacheDirty();
+    scheduleGutterRenderFrame();
+}
 
 function setJsonSearchStatus(current = 0, total = 0) {
     const status = document.getElementById('json-search-status');
@@ -524,6 +877,88 @@ function focusJsonSearchInput() {
     searchInput.setSelectionRange(cursorAt, cursorAt);
 }
 
+function showJsonSearch() {
+    const editorContainer = document.getElementById('json-editor-container');
+    const searchPanel = document.getElementById('json-search-panel');
+    if (!editorContainer) {
+        return;
+    }
+    editorContainer.classList.add('show-search');
+    if (searchPanel) {
+        searchPanel.setAttribute('aria-hidden', 'false');
+    }
+    focusJsonSearchInput();
+}
+
+function hideJsonSearch() {
+    const editorContainer = document.getElementById('json-editor-container');
+    const searchPanel = document.getElementById('json-search-panel');
+    if (!editorContainer) {
+        return;
+    }
+    editorContainer.classList.remove('show-search');
+    if (searchPanel) {
+        searchPanel.setAttribute('aria-hidden', 'true');
+    }
+}
+
+function setupJsonSearchDrag() {
+    const editorContainer = document.getElementById('json-editor-container');
+    const searchPanel = document.getElementById('json-search-panel');
+    const dragHandle = document.querySelector('.json-search-drag-handle');
+    if (!editorContainer || !searchPanel || !dragHandle) {
+        return;
+    }
+
+    let isDragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    const onMouseMove = (event) => {
+        if (!isDragging) {
+            return;
+        }
+        const containerRect = editorContainer.getBoundingClientRect();
+        const panelRect = searchPanel.getBoundingClientRect();
+
+        let nextLeft = event.clientX - containerRect.left - offsetX;
+        let nextTop = event.clientY - containerRect.top - offsetY;
+
+        const maxLeft = containerRect.width - panelRect.width - 8;
+        const maxTop = containerRect.height - panelRect.height - 8;
+
+        if (nextLeft < 8) nextLeft = 8;
+        if (nextTop < 8) nextTop = 8;
+        if (nextLeft > maxLeft) nextLeft = maxLeft;
+        if (nextTop > maxTop) nextTop = maxTop;
+
+        searchPanel.style.left = `${nextLeft}px`;
+        searchPanel.style.top = `${nextTop}px`;
+        searchPanel.style.right = 'auto';
+    };
+
+    const onMouseUp = () => {
+        if (!isDragging) {
+            return;
+        }
+        isDragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    dragHandle.addEventListener('mousedown', (event) => {
+        if (event.button !== 0) {
+            return;
+        }
+        const panelRect = searchPanel.getBoundingClientRect();
+        offsetX = event.clientX - panelRect.left;
+        offsetY = event.clientY - panelRect.top;
+        isDragging = true;
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+}
+
 function focusJsonEditorCursor() {
     if (!jsonEditor) {
         return;
@@ -642,28 +1077,36 @@ async function setupJSONTools() {
     const searchInput = document.getElementById('json-search-input');
     const searchPrevBtn = document.getElementById('json-search-prev-btn');
     const searchNextBtn = document.getElementById('json-search-next-btn');
+    const textarea = document.getElementById('json-editor-textarea');
     if (!editorContainer) {
         console.error('找不到JSON编辑器容器');
         return;
     }
 
-    if (jsonEditor) {
+    if (jsonEditorReady) {
         return;
     }
 
-    editorContainer.textContent = '';
-    const JSONEditorClass = await loadJsonEditorModule();
+    if (!textarea) {
+        console.error('找不到JSON编辑器文本区域');
+        return;
+    }
 
-    jsonEditor = new JSONEditorClass(editorContainer, {
-        mode: 'code',
-        modes: ['tree', 'code', 'text', 'preview'],
-        mainMenuBar: true,
-        navigationBar: true,
-        statusBar: true,
-        search: true,
-    });
+    gutterState.canvas = document.getElementById('json-gutter-canvas');
+    gutterState.ctx = gutterState.canvas ? gutterState.canvas.getContext('2d') : null;
 
-    jsonEditor.setText('');
+    jsonEditor = {
+        textarea,
+        getMode: () => 'text',
+        focus: () => textarea.focus(),
+    };
+
+    jsonEditorReady = true;
+    updateJsonEditorStats(textarea.value);
+    gutterState.totalLines = countLines(textarea.value);
+    refreshGutterLayout();
+    markGutterCacheDirty();
+    scheduleGutterRenderFrame();
 
     if (searchPrevBtn) {
         searchPrevBtn.addEventListener('click', () => runJsonSearch('prev', true));
@@ -687,13 +1130,27 @@ async function setupJSONTools() {
         });
     }
 
-    editorContainer.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter') {
-            return;
+    textarea.addEventListener('input', () => {
+        if (jsonFoldState.formatted) {
+            jsonFoldState.formatted = false;
+            jsonFoldState.sourceText = '';
+            jsonFoldState.foldRanges.clear();
+            jsonFoldState.collapsedLines.clear();
+            jsonFoldState.visibleLines = [];
         }
 
-        const mode = typeof jsonEditor?.getMode === 'function' ? jsonEditor.getMode() : '';
-        if (mode !== 'code' && mode !== 'text' && mode !== 'preview') {
+        updateJsonEditorStats(textarea.value);
+        gutterState.totalLines = countLines(textarea.value);
+        scheduleGutterRenderDebounced();
+    });
+
+    textarea.addEventListener('scroll', () => {
+        scheduleGutterRenderFrame();
+    }, { passive: true });
+
+
+    textarea.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') {
             return;
         }
 
@@ -706,24 +1163,105 @@ async function setupJSONTools() {
         event.stopPropagation();
         runJsonSearch(event.shiftKey ? 'prev' : 'next', false);
     }, true);
+
+    setupJsonSearchDrag();
+
+    const formatButton = document.getElementById('json-view-toggle');
+    if (formatButton) {
+        formatButton.addEventListener('click', () => {
+            const formatted = formatJsonText(textarea.value, true);
+            if (!formatted) {
+                return;
+            }
+            jsonFoldState.formatted = true;
+            jsonFoldState.sourceText = formatted;
+            jsonFoldState.foldRanges = buildFoldRanges(formatted);
+            jsonFoldState.collapsedLines.clear();
+            markGutterCacheDirty();
+            renderFormattedView();
+        });
+    }
+
+    if (gutterState.canvas) {
+        gutterState.canvas.addEventListener('click', (event) => {
+            if (!jsonFoldState.formatted) {
+                return;
+            }
+            const rect = gutterState.canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const paddingTop = gutterState.paddingTop;
+            const lineHeight = gutterState.lineHeightPx;
+            const scrollTop = textarea.scrollTop;
+            const lineIndex = Math.floor((scrollTop + y - paddingTop) / lineHeight);
+            if (lineIndex < 0 || lineIndex >= jsonFoldState.visibleLines.length) {
+                return;
+            }
+            if (x < gutterState.width - gutterState.foldColWidth) {
+                return;
+            }
+            const mapItem = jsonFoldState.lineMap[lineIndex];
+            const foldLine = mapItem?.foldLine;
+            if (!Number.isInteger(foldLine)) {
+                return;
+            }
+            if (jsonFoldState.collapsedLines.has(foldLine)) {
+                jsonFoldState.collapsedLines.delete(foldLine);
+            } else {
+                jsonFoldState.collapsedLines.add(foldLine);
+            }
+            markGutterCacheDirty();
+            renderFormattedView();
+        });
+    }
+
+    window.addEventListener('resize', () => {
+        refreshGutterLayout();
+        markGutterCacheDirty();
+        scheduleGutterRenderFrame();
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'f') {
+            return;
+        }
+        const activeTab = document.querySelector('.tab.active');
+        if (!activeTab || activeTab.dataset.tab !== 'json') {
+            return;
+        }
+        event.preventDefault();
+        const editorContainer = document.getElementById('json-editor-container');
+        if (!editorContainer) {
+            return;
+        }
+        if (editorContainer.classList.contains('show-search')) {
+            hideJsonSearch();
+        } else {
+            showJsonSearch();
+        }
+    });
 }
 
 async function ensureJsonEditor() {
     if (jsonEditor) {
+        refreshGutterLayout();
+        markGutterCacheDirty();
+        scheduleGutterRenderFrame();
         return;
     }
 
     const editorContainer = document.getElementById('json-editor-container');
-    if (editorContainer && !editorContainer.childNodes.length) {
-        editorContainer.textContent = '加载中...';
+    if (editorContainer) {
+        editorContainer.classList.add('is-loading');
     }
 
     try {
         await setupJSONTools();
     } catch (error) {
         console.error('JSON 编辑器初始化失败:', error);
+    } finally {
         if (editorContainer) {
-            editorContainer.textContent = '加载失败';
+            editorContainer.classList.remove('is-loading');
         }
     }
 }
@@ -771,6 +1309,7 @@ function initApp() {
     if (activeTabName === 'time') {
         startCurrentTimeTimer();
     }
+
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') {

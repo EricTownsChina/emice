@@ -58,20 +58,35 @@
             </section>
 
             <section id="json-tab" class="tab-content">
-                <div class="json-tools">
-                    <div class="json-search-row">
-                        <div class="json-search-input-wrap">
-                            <input id="json-search-input" type="text" placeholder="搜索 JSON 内容" />
-                            <div class="json-search-actions" aria-hidden="true">
-                                <span id="json-search-status" class="json-search-status"></span>
-                                <div class="json-search-controls">
-                                    <button id="json-search-prev-btn" type="button" class="json-search-nav-btn" aria-label="上一个">↑</button>
-                                    <button id="json-search-next-btn" type="button" class="json-search-nav-btn" aria-label="下一个">↓</button>
+                <div class="json-stage">
+                    <div class="json-editor-shell" id="json-editor-container">
+                        <div class="json-editor-meta">
+                            <button id="json-view-toggle" class="json-view-btn" type="button" aria-pressed="false">Format</button>
+                            <div class="json-meta-stats">
+                                <span id="json-line-count">0 行</span>
+                                <span id="json-char-count">0 字符</span>
+                            </div>
+                        </div>
+                        <div class="json-search-floating" id="json-search-panel" aria-hidden="true">
+                            <div class="json-search-drag-handle" title="Drag">⋮⋮</div>
+                            <div class="json-search-input-wrap">
+                                <input id="json-search-input" type="text" placeholder="搜索" />
+                                <div class="json-search-actions" aria-hidden="true">
+                                    <span id="json-search-status" class="json-search-status"></span>
+                                    <div class="json-search-controls">
+                                        <button id="json-search-prev-btn" type="button" class="json-search-nav-btn" aria-label="上一个">↑</button>
+                                        <button id="json-search-next-btn" type="button" class="json-search-nav-btn" aria-label="下一个">↓</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        <div class="json-editor-body">
+                            <div class="json-editor-gutter">
+                                <canvas id="json-gutter-canvas" class="json-gutter-canvas" aria-hidden="true"></canvas>
+                            </div>
+                            <textarea id="json-editor-textarea" class="json-editor-textarea" placeholder="在这里粘贴或输入 JSON 代码" wrap="off" spellcheck="false"></textarea>
+                        </div>
                     </div>
-                    <div id="json-editor-container" class="json-editor-container"></div>
                 </div>
             </section>
         </main>
