@@ -20,8 +20,5 @@
     "@tauri-apps/cli": "^2.0.0",
     "@vitejs/plugin-react": "^5.1.2",
     "vite": "^5.4.21"
-  },
-  "dependencies": {
-    "jsoneditor": "^10.4.2"
   }
 }

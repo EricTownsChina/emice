@@ -3,95 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Emice Tools - 程序员工具箱</title>
+    <title>工具</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <nav class="tabs">
-            <button class="tab active" data-tab="time">timestamp</button>
-            <button class="tab" data-tab="json">json</button>
-        </nav>
-
+    <div class="app-shell">
+        <header class="app-header">
+            <nav class="tabs" aria-label="工具切换">
+                <button class="tab active" data-tab="time" type="button">时间</button>
+                <button class="tab" data-tab="json" type="button">JSON</button>
+            </nav>
+            <span id="app-status" class="app-status" aria-live="polite"></span>
+        </header>
         <main class="content">
             <section id="time-tab" class="tab-content active">
-                <div class="time-tools">
-                    <div class="current-time-section">
-                        <h2>当前时间戳</h2>
-                        <div class="current-time-display">
-                            <div class="time-item">
-                                <span id="current-timestamp">-</span>
-                                <button class="copy-btn" data-target="current-timestamp" title="复制">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="convert-section">
-                        <h2>时间戳 → 时间</h2>
-                        <div class="convert-row">
-                            <input type="number" id="timestamp-input" placeholder="输入13位时间戳">
-                            <button id="convert-timestamp-btn">转换</button>
-                            <input type="text" id="timestamp-result" readonly placeholder="结果" value="-">
-                            <select id="timestamp-timezone" aria-label="时间戳转时间时区">
-                                <option value="">加载中...</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="convert-section">
-                        <h2>时间 → 时间戳</h2>
-                        <div class="convert-row">
-                            <input type="text" id="datetime-input" placeholder="yyyy-MM-dd HH:mm:ss">
-                            <button id="convert-datetime-btn">转换</button>
-                            <input type="text" id="datetime-result" readonly placeholder="结果" value="-">
-                            <select id="datetime-timezone" aria-label="时间转时间戳时区">
-                                <option value="">加载中...</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
+                <div class="now-bar"><span>现在</span><strong id="current-timestamp">--</strong><button class="icon-btn copy-btn" data-copy-target="current-timestamp" title="复制" type="button">⧉</button></div>
+                <section class="time-panel">
+                    <div class="panel-toolbar"><div class="mode-switch" role="group" aria-label="转换方向"><button class="mode-btn active" data-mode="timestamp" type="button">戳 → 日期</button><button class="mode-btn" data-mode="datetime" type="button">日期 → 戳</button></div><label class="timezone-control"><select id="time-timezone" aria-label="时区"></select></label></div>
+                    <div class="time-entry"><textarea id="time-input" rows="3" placeholder="每行一条时间戳"></textarea><div class="entry-actions"><span id="time-input-hint">一行一条</span><button id="convert-time-btn" class="primary-btn" type="button">转换</button></div></div>
+                    <div id="time-error" class="inline-error" role="alert" aria-live="polite"></div>
+                </section>
+                <section class="history-section"><div class="section-heading"><h2>记录 <span id="history-count">0</span></h2><div class="section-actions"><button id="fill-now-btn" class="quiet-btn" type="button">现在</button><button id="clear-history-btn" class="quiet-btn danger" type="button">清空</button></div></div><div class="history-table-wrap"><table class="history-table"><thead><tr><th>输入</th><th>时区</th><th>时间戳</th><th>日期</th><th>差值</th><th></th></tr></thead><tbody id="history-body"></tbody></table><div id="history-empty" class="empty-state"><p>暂无记录</p></div></div></section>
             </section>
-
             <section id="json-tab" class="tab-content">
-                <div class="json-stage">
-                    <div class="json-editor-shell" id="json-editor-container">
-                        <div class="json-editor-meta">
-                            <button id="json-view-toggle" class="json-view-btn" type="button" aria-pressed="false">Format</button>
-                            <div class="json-meta-stats">
-                                <span id="json-line-count">0 行</span>
-                                <span id="json-char-count">0 字符</span>
-                            </div>
-                        </div>
-                        <div class="json-search-floating" id="json-search-panel" aria-hidden="true">
-                            <div class="json-search-drag-handle" title="Drag">⋮⋮</div>
-                            <div class="json-search-input-wrap">
-                                <input id="json-search-input" type="text" placeholder="搜索" />
-                                <div class="json-search-actions" aria-hidden="true">
-                                    <span id="json-search-status" class="json-search-status"></span>
-                                    <div class="json-search-controls">
-                                        <button id="json-search-prev-btn" type="button" class="json-search-nav-btn" aria-label="上一个">↑</button>
-                                        <button id="json-search-next-btn" type="button" class="json-search-nav-btn" aria-label="下一个">↓</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="json-editor-body">
-                            <div class="json-editor-gutter">
-                                <canvas id="json-gutter-canvas" class="json-gutter-canvas" aria-hidden="true"></canvas>
-                            </div>
-                            <textarea id="json-editor-textarea" class="json-editor-textarea" placeholder="在这里粘贴或输入 JSON 代码" wrap="off" spellcheck="false"></textarea>
-                        </div>
-                    </div>
-                </div>
+                <section class="json-panel">
+                    <div class="json-toolbar" role="toolbar" aria-label="JSON 操作"><button class="tool-btn accent" data-json-action="format" type="button">格式化</button><button class="tool-btn" data-json-action="compact" type="button">压缩</button><button class="tool-btn" data-json-action="copy" type="button">复制</button><span class="toolbar-divider"></span><button class="tool-btn" data-json-action="escape" type="button">转义</button><button class="tool-btn" data-json-action="unescape" type="button">去转义</button><button class="tool-btn" data-json-action="clear" type="button">清空</button><span class="toolbar-spacer"></span><button class="tool-btn" data-json-action="sample" type="button">示例</button></div>
+                    <div class="json-workspace"><div class="json-editor-pane"><div class="pane-label"><span>输入</span><span id="json-line-count">第 1 行</span></div><textarea id="json-input" spellcheck="false" wrap="off" placeholder="粘贴 JSON"></textarea></div><div class="json-preview-pane"><div class="pane-label"><span>视图</span><div class="preview-actions"><button id="expand-json-btn" class="mini-btn" type="button">展开</button><button id="collapse-json-btn" class="mini-btn" type="button">收缩</button></div></div><div id="json-tree" class="json-tree"><div class="tree-placeholder">—</div></div></div></div>
+                    <div class="json-footer"><div class="json-search"><span>⌕</span><input id="json-search-input" type="search" placeholder="查找"><span id="json-search-count"></span></div><div id="json-message" class="json-message" aria-live="polite"></div></div>
+                </section>
+                <span id="json-validity" class="validity neutral" hidden></span><span id="json-stats" hidden></span>
             </section>
         </main>
     </div>
-
     <script type="module" src="/main.js"></script>
 </body>
 </html>
