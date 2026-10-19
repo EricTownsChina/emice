@@ -109,21 +109,38 @@ fn datetime_from_timestamp(timestamp: i64) -> Result<DateTime<Utc>, String> {
 }
 
 fn parse_naive_datetime(datetime_str: &str) -> Result<NaiveDateTime, String> {
-    let datetime_formats = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"];
+    let datetime_str = datetime_str.trim().replace('T', " ");
+    let date_formats = ["%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y年%m月%d日"];
 
-    for format in &datetime_formats {
-        if let Ok(naive_dt) = NaiveDateTime::parse_from_str(datetime_str, format) {
+    for date_format in date_formats {
+        for time_format in ["%H:%M:%S%.f", "%H:%M"] {
+            if let Ok(dt) = NaiveDateTime::parse_from_str(
+                &datetime_str,
+                &format!("{date_format} {time_format}"),
+            ) {
+                return Ok(dt);
+            }
+        }
+        if let Ok(date) = NaiveDate::parse_from_str(&datetime_str, date_format) {
+            return date
+                .and_hms_opt(0, 0, 0)
+                .ok_or_else(|| "无效的日期".to_string());
+        }
+    }
+
+    for format in ["%Y%m%d%H%M%S", "%Y%m%d%H%M"] {
+        if let Ok(naive_dt) = NaiveDateTime::parse_from_str(&datetime_str, format) {
             return Ok(naive_dt);
         }
     }
 
-    if let Ok(date) = NaiveDate::parse_from_str(datetime_str, "%Y-%m-%d") {
+    if let Ok(date) = NaiveDate::parse_from_str(&datetime_str, "%Y%m%d") {
         return date
             .and_hms_opt(0, 0, 0)
-            .ok_or_else(|| "无法解析时间格式，请使用 yyyy-MM-dd HH:mm:ss 格式".to_string());
+            .ok_or_else(|| "无效的日期".to_string());
     }
 
-    Err("无法解析时间格式，请使用 yyyy-MM-dd HH:mm:ss 格式".to_string())
+    Err("无法解析日期，请使用年-月-日、ISO 8601 或 RFC 2822 格式".to_string())
 }
 
 #[tauri::command]
@@ -202,8 +219,19 @@ fn datetime_to_timestamp(
         "调用 datetime_to_timestamp: datetime_str={}, timezone_name={}",
         datetime_str, timezone_name
     );
+    let datetime_str = datetime_str.trim();
+    if let Ok(dt) = DateTime::parse_from_rfc3339(datetime_str)
+        .or_else(|_| DateTime::parse_from_rfc2822(datetime_str))
+    {
+        return Ok(dt.timestamp_millis());
+    }
+    for format in ["%Y-%m-%d %H:%M:%S%.f%z", "%Y-%m-%d %H:%M:%S%.f %z"] {
+        if let Ok(dt) = DateTime::parse_from_str(datetime_str, format) {
+            return Ok(dt.timestamp_millis());
+        }
+    }
     let timezone = timezone_by_name(&timezone_name)?;
-    let dt = parse_naive_datetime(&datetime_str)?;
+    let dt = parse_naive_datetime(datetime_str)?;
 
     match timezone.from_local_datetime(&dt) {
         LocalResult::Single(dt_with_tz) => Ok(dt_with_tz.timestamp_millis()),
@@ -301,6 +329,68 @@ mod tests {
         assert_eq!(ts_full, 1704067200000);
         assert_eq!(ts_minute, 1704067200000);
         assert_eq!(ts_date, 1704067200000);
+    }
+
+    #[test]
+    fn datetime_to_timestamp_supports_common_date_formats() {
+        for value in [
+            "2024-1-1",
+            "2024/01/01",
+            "2024.01.01 00:00",
+            "2024年01月01日 00:00:00",
+            "2024-01-01T00:00:00",
+            "20240101",
+            "202401010000",
+            "20240101000000",
+            " 2024/1/1 00:00:00 ",
+        ] {
+            let timestamp = datetime_to_timestamp(value.to_string(), Some("UTC".to_string()));
+            assert_eq!(timestamp.unwrap(), 1704067200000, "{value}");
+        }
+        let fractional = datetime_to_timestamp(
+            "2024-01-01 00:00:00.123456".to_string(),
+            Some("UTC".to_string()),
+        );
+        assert_eq!(fractional.unwrap(), 1704067200123);
+    }
+
+    #[test]
+    fn datetime_to_timestamp_respects_explicit_offsets() {
+        for value in [
+            "2024-01-01T00:00:00Z",
+            "2024-01-01T08:00:00+08:00",
+            "2023-12-31T19:00:00-05:00",
+            "2024-01-01 08:00:00 +0800",
+            "2024-01-01 08:00:00+08:00",
+            "Mon, 01 Jan 2024 08:00:00 +0800",
+            "Mon, 01 Jan 2024 00:00:00 GMT",
+        ] {
+            let timestamp = datetime_to_timestamp(value.to_string(), Some("东京".to_string()));
+            assert_eq!(timestamp.unwrap(), 1704067200000, "{value}");
+        }
+        let fractional = datetime_to_timestamp("2024-01-01T08:00:00.123+08:00".to_string(), None);
+        assert_eq!(fractional.unwrap(), 1704067200123);
+    }
+
+    #[test]
+    fn datetime_to_timestamp_rejects_invalid_dates_and_dst_gaps() {
+        for value in [
+            "2024-02-30",
+            "2024/13/01",
+            "20230229",
+            "2024-01-01 25:00:00",
+            "2024-01-01T00:00:00+25:00",
+            "01/02/2024",
+        ] {
+            assert!(
+                datetime_to_timestamp(value.to_string(), None).is_err(),
+                "{value}"
+            );
+        }
+        assert!(
+            datetime_to_timestamp("2024-03-10 02:30:00".to_string(), Some("纽约".to_string()),)
+                .is_err()
+        );
     }
 
     #[test]

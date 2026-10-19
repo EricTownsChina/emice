@@ -5,6 +5,7 @@ const TIMEZONE_FALLBACK = [
     ['洛杉矶', 'America/Los_Angeles'], ['悉尼', 'Australia/Sydney'],
 ];
 const STORAGE_KEY = 'emice-time-history-v2';
+const copyFeedback = new WeakMap();
 const timezoneIds = new Map(TIMEZONE_FALLBACK);
 let invokeApi = null;
 let activeTimeMode = 'timestamp';
@@ -85,13 +86,41 @@ function formatTimestamp(timestamp, timezoneName) {
 }
 
 function parseDatetime(value, timezoneName) {
-    const match = value.trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
-    if (!match) throw new Error('请使用 yyyy-MM-dd HH:mm:ss 格式');
-    const [, year, month, day, hour = '0', minute = '0', second = '0'] = match;
+    const text = value.trim().replace(/年|月/g, '-').replace(/日/g, '');
+    const match = text.match(/^(\d{4})([-/.])(\d{1,2})\2(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?)?(?:\s*(Z|[+-]\d{2}:?\d{2}))?$/i);
+    const compact = text.match(/^(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2})(\d{2})?)?$/);
+    if (!match && !compact) {
+        // Only use the native parser for explicitly zoned RFC 2822 dates.
+        if (/^(?:[A-Za-z]{3},\s*)?\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+(?:[+-]\d{4}|GMT|UT)$/i.test(text)) {
+            const timestamp = Date.parse(text);
+            if (Number.isFinite(timestamp)) return timestamp;
+        }
+        throw new Error('无法解析日期，请使用年-月-日、ISO 8601 或 RFC 2822 格式');
+    }
+    const [year, month, day, hour = '0', minute = '0', second = '0', fraction = '', offset] = match
+        ? [match[1], match[3], ...match.slice(4)] : compact.slice(1);
+    const milliseconds = Number(fraction.padEnd(3, '0').slice(0, 3));
+    const date = new Date(0);
+    date.setUTCFullYear(Number(year), Number(month) - 1, Number(day));
+    date.setUTCHours(Number(hour), Number(minute), Number(second), milliseconds);
+    if (date.getUTCFullYear() !== Number(year) || date.getUTCMonth() !== Number(month) - 1 || date.getUTCDate() !== Number(day)
+        || Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) throw new Error('无效的日期');
+    const guess = date.getTime();
+    if (offset) {
+        if (offset.toUpperCase() === 'Z') return guess;
+        const digits = offset.replace(':', '');
+        const hours = Number(digits.slice(1, 3));
+        const minutes = Number(digits.slice(3));
+        if (hours > 23 || minutes > 59) throw new Error('无效的时区偏移');
+        return guess - (digits[0] === '-' ? -1 : 1) * (hours * 60 + minutes) * 60000;
+    }
     const zone = timezoneIds.get(timezoneName) || 'Asia/Shanghai';
-    const guess = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
-    const offset = timezoneOffsetAt(zone, new Date(guess));
-    return guess - offset * 60000;
+    // Check both sides of DST changes; keep the earlier occurrence for repeated hours.
+    const offsets = new Set([-86400000, 0, 86400000].map((delta) => timezoneOffsetAt(zone, new Date(guess + delta))));
+    const candidates = [...offsets].map((minutes) => guess - minutes * 60000)
+        .filter((timestamp) => timestamp + timezoneOffsetAt(zone, new Date(timestamp)) * 60000 === guess);
+    if (!candidates.length) throw new Error('该本地时间在该时区不存在（夏令时切换）');
+    return Math.min(...candidates);
 }
 
 function timezoneOffsetAt(zone, date) {
@@ -101,58 +130,64 @@ function timezoneOffsetAt(zone, date) {
     return match ? (match[1] === '-' ? -1 : 1) * (Number(match[2]) * 60 + Number(match[3] || 0)) : 0;
 }
 
-function formatDelta(current, previous) {
-    if (previous == null) return '—';
-    const diff = current - previous;
-    const sign = diff >= 0 ? '+' : '-';
-    let seconds = Math.round(Math.abs(diff) / 1000);
-    const days = Math.floor(seconds / 86400); seconds %= 86400;
-    const hours = Math.floor(seconds / 3600); seconds %= 3600;
-    const minutes = Math.floor(seconds / 60); seconds %= 60;
-    const chunks = [];
-    if (days) chunks.push(`${days}天`);
-    if (hours) chunks.push(`${hours}时`);
-    if (minutes) chunks.push(`${minutes}分`);
-    if (seconds || !chunks.length) chunks.push(`${seconds}秒`);
-    return `${sign}${chunks.slice(0, 2).join(' ')}`;
-}
-
-async function convertTimeEntries() {
+async function convertTimeEntry() {
     const input = document.getElementById('time-input');
     const error = document.getElementById('time-error');
-    const values = input.value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
-    if (!values.length) { error.textContent = '请输入至少一条时间'; input.focus(); return; }
+    const value = input.value.trim();
+    if (!value) { error.textContent = '请输入时间'; input.focus(); return; }
     error.textContent = '';
     const timezoneName = document.getElementById('time-timezone').value || DEFAULT_TIMEZONE;
-    const next = [];
     try {
-        for (const value of values) {
-            const timestamp = activeTimeMode === 'timestamp' ? normalizeTimestamp(value) : Number(await command('datetime_to_timestamp', { datetimeStr: value, timezoneName }));
-            if (!Number.isFinite(timestamp)) throw new Error('转换结果无效');
-            const localTime = activeTimeMode === 'timestamp' ? await command('timestamp_to_datetime', { timestamp, timezoneName }) : value;
-            next.push({ id: `${Date.now()}-${Math.random()}`, input: value, timezone: timezoneName, timestamp, localTime, mode: activeTimeMode });
-        }
+        const timestamp = activeTimeMode === 'timestamp' ? normalizeTimestamp(value) : Number(await command('datetime_to_timestamp', { datetimeStr: value, timezoneName }));
+        if (!Number.isFinite(timestamp)) throw new Error('转换结果无效');
+        const localTime = await command('timestamp_to_datetime', { timestamp, timezoneName });
+        timeHistory.unshift({ id: `${Date.now()}-${Math.random()}`, input: value, timezone: timezoneName, timestamp, localTime, mode: activeTimeMode });
     } catch (caught) { error.textContent = String(caught?.message || caught).replace(/^Error:\s*/, ''); setStatus('转换失败', 'error'); return; }
-    timeHistory = [...next.reverse(), ...timeHistory].slice(0, 60);
     saveHistory(); renderHistory(); input.value = '';
-    setStatus(`${next.length} 条已加入历史`);
+    setStatus('已加入历史');
 }
 
 function renderHistory() {
     const body = document.getElementById('history-body');
-    const empty = document.getElementById('history-empty');
-    document.getElementById('history-count').textContent = timeHistory.length;
-    empty.hidden = timeHistory.length > 0;
-    body.innerHTML = timeHistory.map((item, index) => `<tr><td class="mono input-cell" title="${escapeHtml(item.input)}">${escapeHtml(item.input)}</td><td><span class="zone-pill">${escapeHtml(item.timezone)}</span></td><td class="mono">${item.timestamp}</td><td class="mono local-cell">${escapeHtml(item.localTime)}</td><td class="delta ${index && item.timestamp >= timeHistory[index - 1].timestamp ? 'positive' : ''}">${formatDelta(item.timestamp, timeHistory[index - 1]?.timestamp)}</td><td class="row-actions"><button class="row-btn copy-record" data-id="${item.id}" title="复制时间戳">⧉</button><button class="row-btn delete-record" data-id="${item.id}" title="删除记录">×</button></td></tr>`).join('');
-    body.querySelectorAll('.copy-record').forEach((button) => button.addEventListener('click', () => copyText(timeHistory.find((item) => item.id === button.dataset.id)?.timestamp)));
+    body.innerHTML = timeHistory.map((item) => `<tr><td class="mono input-cell" title="${escapeHtml(item.input)}">${escapeHtml(item.input)}</td><td><span class="zone-pill">${escapeHtml(item.timezone)}</span></td><td class="mono">${item.timestamp}</td><td class="mono local-cell">${escapeHtml(item.localTime)}</td><td class="row-actions"><button class="row-btn copy-record" data-id="${item.id}" title="复制时间戳">⧉</button><button class="row-btn delete-record" data-id="${item.id}" title="删除记录">×</button></td></tr>`).join('');
+    body.querySelectorAll('.copy-record').forEach((button) => button.addEventListener('click', () => copyText(timeHistory.find((item) => item.id === button.dataset.id)?.timestamp, button)));
     body.querySelectorAll('.delete-record').forEach((button) => button.addEventListener('click', () => { timeHistory = timeHistory.filter((item) => item.id !== button.dataset.id); saveHistory(); renderHistory(); }));
 }
 
 function escapeHtml(value) { return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
 
-async function copyText(value) {
+async function copyText(value, button) {
     if (value == null) return;
-    try { await navigator.clipboard.writeText(String(value)); setStatus('已复制'); } catch (_) { setStatus('复制失败', 'error'); }
+    let success = false;
+    try {
+        await navigator.clipboard.writeText(String(value));
+        success = true;
+        setStatus('已复制');
+    } catch (_) {
+        setStatus('复制失败', 'error');
+    }
+    if (!button) return;
+    const previous = copyFeedback.get(button);
+    if (previous) clearTimeout(previous.timer);
+    const original = previous?.original || {
+        text: button.textContent,
+        title: button.title,
+        label: button.getAttribute('aria-label'),
+    };
+    button.textContent = success ? '✓' : '!';
+    button.title = success ? '已复制' : '复制失败，请重试';
+    button.setAttribute('aria-label', button.title);
+    button.classList.toggle('copy-success', success);
+    button.classList.toggle('copy-error', !success);
+    const timer = setTimeout(() => {
+        button.textContent = original.text;
+        button.title = original.title;
+        if (original.label === null) button.removeAttribute('aria-label');
+        else button.setAttribute('aria-label', original.label);
+        button.classList.remove('copy-success', 'copy-error');
+        copyFeedback.delete(button);
+    }, 1500);
+    copyFeedback.set(button, { original, timer });
 }
 
 function updateCurrentTime() { command('get_current_time').then((result) => { document.getElementById('current-timestamp').textContent = result.timestamp; }).catch(() => {}); }
@@ -191,40 +226,89 @@ function renderJsonTree(value) {
 }
 
 function updateJsonTree() {
-    const result = readJson(); jsonStats(document.getElementById('json-input').value); updateJsonValidity(result); renderJsonTree(result.value); applyJsonSearch();
+    jsonStats(document.getElementById('json-input').value);
+    document.getElementById('json-message').textContent = '';
+    if (document.getElementById('json-preview').hidden) { applyJsonSearch(); return; }
+    const result = readJson(); updateJsonValidity(result); renderJsonTree(result.value); applyJsonSearch();
     if (result.error) document.getElementById('json-message').textContent = result.error.message.replace(/^JSON.parse:\s*/, ''); else document.getElementById('json-message').textContent = '';
 }
 
+function toggleJsonPreview() {
+    const preview = document.getElementById('json-preview');
+    preview.hidden = !preview.hidden;
+    document.querySelector('.json-workspace').classList.toggle('preview-open', !preview.hidden);
+    const button = document.getElementById('toggle-json-preview-btn');
+    button.setAttribute('aria-expanded', String(!preview.hidden));
+    button.textContent = preview.hidden ? '展开视图' : '收起视图';
+    if (preview.hidden) document.getElementById('json-tree').replaceChildren();
+    updateJsonTree();
+}
+
 function jsonAction(action) {
-    const input = document.getElementById('json-input'); const result = readJson();
+    const input = document.getElementById('json-input');
     if (action === 'clear') { input.value = ''; updateJsonTree(); return; }
-    if (action === 'sample') { input.value = JSON.stringify({ name: 'Emice', createdAt: 1704067200, features: ['format', 'tree', 'history'], config: { compact: false, locale: 'zh-CN' } }, null, 2); updateJsonTree(); return; }
     if (action === 'copy') { copyText(input.value); return; }
     if (action === 'escape') { input.value = JSON.stringify(input.value).slice(1, -1); updateJsonTree(); return; }
     if (action === 'unescape') { try { input.value = JSON.parse(`"${input.value.replace(/"/g, '\\"')}"`); } catch (_) { input.value = input.value.replace(/\\([\\"'\/bfnrt])/g, '$1'); } updateJsonTree(); return; }
+    const result = readJson();
     if (result.error) { document.getElementById('json-message').textContent = '请先修正 JSON 格式'; return; }
     input.value = JSON.stringify(result.value, null, action === 'compact' ? 0 : 2); updateJsonTree();
 }
 
 function applyJsonSearch() {
-    const query = document.getElementById('json-search-input').value.trim().toLowerCase(); const nodes = [...document.querySelectorAll('#json-tree .tree-node')]; let count = 0;
+    const query = document.getElementById('json-search-input').value.trim().toLowerCase();
+    const countLabel = document.getElementById('json-search-count');
+    if (document.getElementById('json-preview').hidden) {
+        let count = 0;
+        if (query) {
+            const input = document.getElementById('json-input');
+            const text = input.value.toLowerCase();
+            for (let index = text.indexOf(query); index !== -1; index = text.indexOf(query, index + query.length)) count += 1;
+        }
+        countLabel.textContent = query ? `${count} 处` : '';
+        return;
+    }
+    const nodes = [...document.querySelectorAll('#json-tree .tree-node')]; let count = 0;
     nodes.forEach((node) => { const matched = !query || node.textContent.toLowerCase().includes(query); node.hidden = Boolean(query && !matched); if (matched && query) count += 1; });
-    document.getElementById('json-search-count').textContent = query ? `${count} 项` : '';
+    countLabel.textContent = query ? `${count} 项` : '';
 }
 
 function setAllJsonDetails(open) { document.querySelectorAll('#json-tree details').forEach((details) => { details.open = open; }); }
 
 function setupEvents() {
-    document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach((item) => item.classList.toggle('active', item === tab)); document.querySelectorAll('.tab-content').forEach((item) => item.classList.toggle('active', item.id === `${tab.dataset.tab}-tab`)); }));
-    document.querySelectorAll('.mode-btn').forEach((button) => button.addEventListener('click', () => { activeTimeMode = button.dataset.mode; document.querySelectorAll('.mode-btn').forEach((item) => item.classList.toggle('active', item === button)); const input = document.getElementById('time-input'); input.placeholder = activeTimeMode === 'timestamp' ? '每行一条，例如：1704067200\n支持秒或毫秒时间戳' : '每行一条，例如：2024-01-01 08:00:00'; document.getElementById('time-input-hint').textContent = activeTimeMode === 'timestamp' ? '可一次粘贴多条，按行转换' : '支持日期、分钟或秒格式'; }));
-    document.getElementById('convert-time-btn').addEventListener('click', convertTimeEntries);
-    document.getElementById('time-input').addEventListener('keydown', (event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') convertTimeEntries(); });
-    document.getElementById('fill-now-btn').addEventListener('click', () => { document.getElementById('time-input').value = activeTimeMode === 'timestamp' ? String(Math.floor(Date.now() / 1000)) : new Date().toISOString().slice(0, 19).replace('T', ' '); });
+    document.querySelectorAll('.tool-select').forEach((select) => select.addEventListener('change', () => {
+        const tool = select.value;
+        document.querySelectorAll('.tool-select').forEach((item) => { item.value = tool; });
+        document.querySelectorAll('.tab-content').forEach((item) => item.classList.toggle('active', item.id === `${tool}-tab`));
+        document.querySelector('.tab-content.active .tool-select').focus();
+    }));
+    document.getElementById('time-direction-btn').addEventListener('click', (event) => {
+        activeTimeMode = activeTimeMode === 'timestamp' ? 'datetime' : 'timestamp';
+        document.getElementById('time-direction-arrow').textContent = activeTimeMode === 'timestamp' ? '→' : '←';
+        event.currentTarget.setAttribute('aria-label', `${activeTimeMode === 'timestamp' ? '时间戳转日期' : '日期转时间戳'}，点击切换方向`);
+        const input = document.getElementById('time-input');
+        input.placeholder = activeTimeMode === 'timestamp' ? '时间戳' : '2026-10-18 12:00:00 · 2026/10/18 · 20261018 · ISO 8601…';
+        input.title = activeTimeMode === 'timestamp' ? '' : [
+            '2026-10-18 12:00:00',
+            '2026/10/18 12:00',
+            '2026.10.18',
+            '2026年10月18日 12:00:00',
+            '20261018 / 202610181200 / 20261018120000',
+            '2026-10-18 12:00:00.123',
+            '2026-10-18T12:00:00+08:00',
+            '2026-10-18T04:00:00Z',
+            'Sun, 18 Oct 2026 12:00:00 +0800',
+        ].join('\n');
+        document.getElementById('time-error').textContent = '';
+    });
+    document.getElementById('convert-time-btn').addEventListener('click', convertTimeEntry);
+    document.getElementById('time-input').addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); convertTimeEntry(); } });
     document.getElementById('clear-history-btn').addEventListener('click', () => { timeHistory = []; saveHistory(); renderHistory(); setStatus('历史已清空'); });
-    document.querySelectorAll('.copy-btn').forEach((button) => button.addEventListener('click', () => copyText(document.getElementById(button.dataset.copyTarget).textContent)));
+    document.querySelectorAll('.copy-btn').forEach((button) => button.addEventListener('click', () => copyText(document.getElementById(button.dataset.copyTarget).textContent, button)));
     document.querySelectorAll('[data-json-action]').forEach((button) => button.addEventListener('click', () => jsonAction(button.dataset.jsonAction)));
     document.getElementById('json-input').addEventListener('input', updateJsonTree);
     document.getElementById('json-search-input').addEventListener('input', applyJsonSearch);
+    document.getElementById('toggle-json-preview-btn').addEventListener('click', toggleJsonPreview);
     document.getElementById('expand-json-btn').addEventListener('click', () => setAllJsonDetails(true));
     document.getElementById('collapse-json-btn').addEventListener('click', () => setAllJsonDetails(false));
 }
