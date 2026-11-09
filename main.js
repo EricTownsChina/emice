@@ -7,6 +7,7 @@ const TIMEZONE_FALLBACK = [
 const STORAGE_KEY = 'emice-time-history-v2';
 const copyFeedback = new WeakMap();
 const timezoneIds = new Map(TIMEZONE_FALLBACK);
+const jsonSearchState = { query: '', panel: 'text', marks: [], index: -1 };
 let invokeApi = null;
 let activeTimeMode = 'timestamp';
 let timezones = [];
@@ -143,13 +144,13 @@ async function convertTimeEntry() {
         const localTime = await command('timestamp_to_datetime', { timestamp, timezoneName });
         timeHistory.unshift({ id: `${Date.now()}-${Math.random()}`, input: value, timezone: timezoneName, timestamp, localTime, mode: activeTimeMode });
     } catch (caught) { error.textContent = String(caught?.message || caught).replace(/^Error:\s*/, ''); setStatus('转换失败', 'error'); return; }
-    saveHistory(); renderHistory(); input.value = '';
+    saveHistory(); renderHistory();
     setStatus('已加入历史');
 }
 
 function renderHistory() {
     const body = document.getElementById('history-body');
-    body.innerHTML = timeHistory.map((item) => `<tr><td class="mono input-cell" title="${escapeHtml(item.input)}">${escapeHtml(item.input)}</td><td><span class="zone-pill">${escapeHtml(item.timezone)}</span></td><td class="mono">${item.timestamp}</td><td class="mono local-cell">${escapeHtml(item.localTime)}</td><td class="row-actions"><button class="row-btn copy-record" data-id="${item.id}" title="复制时间戳">⧉</button><button class="row-btn delete-record" data-id="${item.id}" title="删除记录">×</button></td></tr>`).join('');
+    body.innerHTML = timeHistory.map((item) => `<tr><td class="mono input-cell" title="${escapeHtml(item.input)}">${escapeHtml(item.input)}</td><td><span class="zone-pill">${escapeHtml(item.timezone)}</span></td><td class="mono">${item.timestamp}</td><td class="mono local-cell">${escapeHtml(item.localTime)}</td><td class="row-actions"><button class="copy-icon-btn copy-record" data-id="${item.id}" title="复制时间戳" aria-label="复制时间戳" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-copy"/></svg></button><button class="row-btn delete-record" data-id="${item.id}" title="删除记录">×</button></td></tr>`).join('');
     body.querySelectorAll('.copy-record').forEach((button) => button.addEventListener('click', () => copyText(timeHistory.find((item) => item.id === button.dataset.id)?.timestamp, button)));
     body.querySelectorAll('.delete-record').forEach((button) => button.addEventListener('click', () => { timeHistory = timeHistory.filter((item) => item.id !== button.dataset.id); saveHistory(); renderHistory(); }));
 }
@@ -170,17 +171,17 @@ async function copyText(value, button) {
     const previous = copyFeedback.get(button);
     if (previous) clearTimeout(previous.timer);
     const original = previous?.original || {
-        text: button.textContent,
+        iconHref: button.querySelector('use')?.getAttribute('href'),
         title: button.title,
         label: button.getAttribute('aria-label'),
     };
-    button.textContent = success ? '✓' : '!';
+    button.querySelector('use')?.setAttribute('href', success ? '#icon-copy-done' : '#icon-copy-error');
     button.title = success ? '已复制' : '复制失败，请重试';
     button.setAttribute('aria-label', button.title);
     button.classList.toggle('copy-success', success);
     button.classList.toggle('copy-error', !success);
     const timer = setTimeout(() => {
-        button.textContent = original.text;
+        if (original.iconHref) button.querySelector('use')?.setAttribute('href', original.iconHref);
         button.title = original.title;
         if (original.label === null) button.removeAttribute('aria-label');
         else button.setAttribute('aria-label', original.label);
@@ -195,7 +196,7 @@ function updateCurrentTime() { command('get_current_time').then((result) => { do
 function jsonStats(value) {
     const lines = value ? value.split(/\r?\n/).length : 1;
     document.getElementById('json-stats').textContent = `${lines} 行 · ${value.length} 字符`;
-    document.getElementById('json-line-count').textContent = `第 ${lines} 行`;
+    document.getElementById('json-line-count').textContent = `共 ${lines} 行`;
 }
 
 function readJson() {
@@ -219,68 +220,214 @@ function nodeLabel(value, key, depth = 0) {
     return `<div class="tree-leaf tree-node" data-depth="${depth}"><span class="tree-key">${key === null ? '' : escapeHtml(key)}</span>${key === null ? '' : '<span class="tree-colon">:</span>'}<span class="tree-value type-${type}">${rendered}</span></div>`;
 }
 
-function renderJsonTree(value) {
+function renderJsonTree(result) {
     const tree = document.getElementById('json-tree');
-    if (value === null || value === undefined) { tree.innerHTML = '<div class="tree-placeholder">输入有效 JSON 后显示结构</div>'; return; }
-    tree.innerHTML = nodeLabel(value, null);
+    if (!result.raw || result.error) {
+        tree.innerHTML = `<div class="tree-placeholder">${result.error ? 'JSON 格式有误，请切换到文本面板修正' : '输入有效 JSON 后显示结构'}</div>`;
+        return;
+    }
+    tree.innerHTML = nodeLabel(result.value, null);
 }
 
-function updateJsonTree() {
+function updateJsonTree({ revealSearch = false } = {}) {
     jsonStats(document.getElementById('json-input').value);
     document.getElementById('json-message').textContent = '';
-    if (document.getElementById('json-preview').hidden) { applyJsonSearch(); return; }
-    const result = readJson(); updateJsonValidity(result); renderJsonTree(result.value); applyJsonSearch();
-    if (result.error) document.getElementById('json-message').textContent = result.error.message.replace(/^JSON.parse:\s*/, ''); else document.getElementById('json-message').textContent = '';
+    if (!document.getElementById('json-preview').hidden) {
+        const result = readJson();
+        updateJsonValidity(result);
+        renderJsonTree(result);
+        if (result.error) document.getElementById('json-message').textContent = result.error.message.replace(/^JSON.parse:\s*/, '');
+    }
+    applyJsonSearch({ reveal: revealSearch });
 }
 
-function toggleJsonPreview() {
-    const preview = document.getElementById('json-preview');
-    preview.hidden = !preview.hidden;
-    document.querySelector('.json-workspace').classList.toggle('preview-open', !preview.hidden);
-    const button = document.getElementById('toggle-json-preview-btn');
-    button.setAttribute('aria-expanded', String(!preview.hidden));
-    button.textContent = preview.hidden ? '展开视图' : '收起视图';
-    if (preview.hidden) document.getElementById('json-tree').replaceChildren();
+function selectJsonPanel(panel) {
+    const showView = panel === 'view';
+    document.getElementById('json-editor').hidden = showView;
+    document.getElementById('json-preview').hidden = !showView;
+    document.getElementById('json-line-count').hidden = showView;
+    document.querySelectorAll('[data-json-panel]').forEach((tab) => {
+        const selected = tab.dataset.jsonPanel === panel;
+        tab.setAttribute('aria-selected', String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+    });
+    updateJsonTree({ revealSearch: true });
+}
+
+function unescapeJsonText(value) {
+    try {
+        const parsed = JSON.parse(value);
+        return typeof parsed === 'string' ? parsed : value;
+    } catch (_) {
+        // The escape action produces a JSON string body without surrounding quotes.
+        return JSON.parse(`"${value}"`);
+    }
+}
+
+function jsonAction(action, button) {
+    const input = document.getElementById('json-input');
+    if (action === 'clear') { input.value = ''; updateJsonTree(); return; }
+    if (action === 'copy') { copyText(input.value, button); return; }
+    if (action === 'escape') { input.value = JSON.stringify(input.value).slice(1, -1); updateJsonTree(); return; }
+    if (action === 'unescape') {
+        if (!input.value) return;
+        try {
+            const decoded = unescapeJsonText(input.value);
+            input.value = decoded;
+            updateJsonTree();
+        } catch (_) {
+            document.getElementById('json-message').textContent = '去转义失败：请检查 JSON 字符串中的引号和转义序列';
+        }
+        return;
+    }
+    const result = readJson();
+    if (!result.raw) return;
+    if (result.error) { document.getElementById('json-message').textContent = '请先修正 JSON 格式'; return; }
+    input.value = JSON.stringify(result.value, null, action === 'compact' ? 0 : 2);
+    input.setSelectionRange(0, 0);
+    input.scrollLeft = 0;
+    input.scrollTop = 0;
     updateJsonTree();
 }
 
-function jsonAction(action) {
+function findJsonMatches(text, query) {
+    if (!query) return [];
+    const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu');
+    return [...text.matchAll(pattern)].map((match) => ({ start: match.index, end: match.index + match[0].length }));
+}
+
+function highlightJsonMatches(text, matches) {
+    let end = 0;
+    const parts = matches.map((match) => {
+        const part = `${escapeHtml(text.slice(end, match.start))}<mark class="json-match">${escapeHtml(text.slice(match.start, match.end))}</mark>`;
+        end = match.end;
+        return part;
+    });
+    return parts.join('') + escapeHtml(text.slice(end));
+}
+
+function syncJsonHighlights() {
     const input = document.getElementById('json-input');
-    if (action === 'clear') { input.value = ''; updateJsonTree(); return; }
-    if (action === 'copy') { copyText(input.value); return; }
-    if (action === 'escape') { input.value = JSON.stringify(input.value).slice(1, -1); updateJsonTree(); return; }
-    if (action === 'unescape') { try { input.value = JSON.parse(`"${input.value.replace(/"/g, '\\"')}"`); } catch (_) { input.value = input.value.replace(/\\([\\"'\/bfnrt])/g, '$1'); } updateJsonTree(); return; }
-    const result = readJson();
-    if (result.error) { document.getElementById('json-message').textContent = '请先修正 JSON 格式'; return; }
-    input.value = JSON.stringify(result.value, null, action === 'compact' ? 0 : 2); updateJsonTree();
+    const highlights = document.getElementById('json-highlights');
+    highlights.style.width = `${input.clientWidth}px`;
+    highlights.style.height = `${input.clientHeight}px`;
+    highlights.scrollTop = input.scrollTop;
+    highlights.scrollLeft = input.scrollLeft;
 }
 
-function applyJsonSearch() {
-    const query = document.getElementById('json-search-input').value.trim().toLowerCase();
-    const countLabel = document.getElementById('json-search-count');
+function applyJsonSearch({ reveal = true } = {}) {
+    const query = document.getElementById('json-search-input').value;
+    const panel = document.getElementById('json-preview').hidden ? 'text' : 'view';
+    const previousIndex = query === jsonSearchState.query && panel === jsonSearchState.panel ? jsonSearchState.index : 0;
     if (document.getElementById('json-preview').hidden) {
-        let count = 0;
-        if (query) {
-            const input = document.getElementById('json-input');
-            const text = input.value.toLowerCase();
-            for (let index = text.indexOf(query); index !== -1; index = text.indexOf(query, index + query.length)) count += 1;
-        }
-        countLabel.textContent = query ? `${count} 处` : '';
-        return;
+        const input = document.getElementById('json-input');
+        const matches = findJsonMatches(input.value, query);
+        document.getElementById('json-highlights').innerHTML = highlightJsonMatches(input.value, matches) + '\n';
+        syncJsonHighlights();
+    } else {
+        document.querySelectorAll('#json-tree .tree-key, #json-tree .tree-value').forEach((element) => {
+            const text = element.textContent;
+            const matches = findJsonMatches(text, query);
+            element.innerHTML = highlightJsonMatches(text, matches);
+            if (matches.length) {
+                let ancestor = element.parentElement;
+                while (ancestor && ancestor.id !== 'json-tree') {
+                    if (ancestor.tagName === 'DETAILS') ancestor.open = true;
+                    ancestor = ancestor.parentElement;
+                }
+            }
+        });
     }
-    const nodes = [...document.querySelectorAll('#json-tree .tree-node')]; let count = 0;
-    nodes.forEach((node) => { const matched = !query || node.textContent.toLowerCase().includes(query); node.hidden = Boolean(query && !matched); if (matched && query) count += 1; });
-    countLabel.textContent = query ? `${count} 项` : '';
+    jsonSearchState.query = query;
+    jsonSearchState.panel = panel;
+    jsonSearchState.marks = [...document.querySelectorAll(panel === 'text' ? '#json-highlights .json-match' : '#json-tree .json-match')];
+    setJsonSearchIndex(Math.max(0, Math.min(previousIndex, jsonSearchState.marks.length - 1)), { reveal });
 }
 
-function setAllJsonDetails(open) { document.querySelectorAll('#json-tree details').forEach((details) => { details.open = open; }); }
+function setJsonSearchIndex(index, { reveal = true } = {}) {
+    const { marks, query } = jsonSearchState;
+    marks[jsonSearchState.index]?.classList.remove('json-match-current');
+    jsonSearchState.index = marks.length ? (index + marks.length) % marks.length : -1;
+    const current = marks[jsonSearchState.index];
+    current?.classList.add('json-match-current');
+    const countLabel = document.getElementById('json-search-count');
+    countLabel.textContent = query ? `${jsonSearchState.index + 1}/${marks.length}` : '';
+    countLabel.setAttribute('aria-label', query ? `第 ${jsonSearchState.index + 1} 处，共 ${marks.length} 处` : '');
+    document.getElementById('json-search-prev').disabled = !marks.length;
+    document.getElementById('json-search-next').disabled = !marks.length;
+    if (current && reveal) revealJsonMatch(current);
+}
+
+function revealJsonMatch(mark) {
+    const isText = jsonSearchState.panel === 'text';
+    if (!isText) {
+        let ancestor = mark.parentElement;
+        while (ancestor && ancestor.id !== 'json-tree') {
+            if (ancestor.tagName === 'DETAILS') ancestor.open = true;
+            ancestor = ancestor.parentElement;
+        }
+    }
+    const viewport = document.getElementById(isText ? 'json-input' : 'json-tree');
+    const target = mark.getClientRects()[0];
+    if (!target || !viewport.clientHeight) return;
+    const bounds = viewport.getBoundingClientRect();
+    viewport.scrollTop += target.top - bounds.top - (viewport.clientHeight - target.height) / 2;
+    if (target.left < bounds.left + 10) viewport.scrollLeft += target.left - bounds.left - 10;
+    else if (target.right > bounds.left + viewport.clientWidth - 10) viewport.scrollLeft += target.right - bounds.left - viewport.clientWidth + 10;
+    if (isText) syncJsonHighlights();
+}
+
+function moveJsonSearch(direction) {
+    if (jsonSearchState.marks.length) setJsonSearchIndex(jsonSearchState.index + direction);
+}
+
+async function setupWindowControls() {
+    const getCurrentWindow = window.__TAURI__?.window?.getCurrentWindow;
+    if (typeof getCurrentWindow !== 'function') return;
+    const appWindow = getCurrentWindow();
+    const maximizeButton = document.getElementById('window-maximize');
+    const syncMaximized = async () => {
+        try {
+            const maximized = await appWindow.isMaximized();
+            maximizeButton.classList.toggle('is-maximized', maximized);
+            maximizeButton.title = maximized ? '还原' : '最大化';
+            maximizeButton.setAttribute('aria-label', maximizeButton.title);
+        } catch (error) {
+            console.error('读取窗口状态失败', error);
+        }
+    };
+    document.getElementById('window-controls').hidden = false;
+    const actions = {
+        'window-minimize': () => appWindow.minimize(),
+        'window-maximize': async () => { await appWindow.toggleMaximize(); await syncMaximized(); },
+        'window-close': () => appWindow.close(),
+    };
+    Object.entries(actions).forEach(([id, action]) => {
+        document.getElementById(id).addEventListener('click', async () => {
+            try {
+                await action();
+            } catch (error) {
+                console.error('窗口操作失败', error);
+                setStatus('窗口操作失败，请重试', 'error');
+            }
+        });
+    });
+    await syncMaximized();
+    try {
+        await appWindow.onResized(syncMaximized);
+    } catch (error) {
+        console.error('监听窗口状态失败', error);
+    }
+}
 
 function setupEvents() {
     document.querySelectorAll('.tool-select').forEach((select) => select.addEventListener('change', () => {
         const tool = select.value;
         document.querySelectorAll('.tool-select').forEach((item) => { item.value = tool; });
         document.querySelectorAll('.tab-content').forEach((item) => item.classList.toggle('active', item.id === `${tool}-tab`));
-        document.querySelector('.tab-content.active .tool-select').focus();
+        document.getElementById('titlebar-json-actions').hidden = tool !== 'json';
+        document.getElementById('titlebar-time-actions').hidden = tool !== 'time';
+        select.focus();
     }));
     document.getElementById('time-direction-btn').addEventListener('click', (event) => {
         activeTimeMode = activeTimeMode === 'timestamp' ? 'datetime' : 'timestamp';
@@ -305,16 +452,44 @@ function setupEvents() {
     document.getElementById('time-input').addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); convertTimeEntry(); } });
     document.getElementById('clear-history-btn').addEventListener('click', () => { timeHistory = []; saveHistory(); renderHistory(); setStatus('历史已清空'); });
     document.querySelectorAll('.copy-btn').forEach((button) => button.addEventListener('click', () => copyText(document.getElementById(button.dataset.copyTarget).textContent, button)));
-    document.querySelectorAll('[data-json-action]').forEach((button) => button.addEventListener('click', () => jsonAction(button.dataset.jsonAction)));
+    document.querySelectorAll('[data-json-action]').forEach((button) => button.addEventListener('click', () => jsonAction(button.dataset.jsonAction, button)));
     document.getElementById('json-input').addEventListener('input', updateJsonTree);
-    document.getElementById('json-search-input').addEventListener('input', applyJsonSearch);
-    document.getElementById('toggle-json-preview-btn').addEventListener('click', toggleJsonPreview);
-    document.getElementById('expand-json-btn').addEventListener('click', () => setAllJsonDetails(true));
-    document.getElementById('collapse-json-btn').addEventListener('click', () => setAllJsonDetails(false));
+    const searchInput = document.getElementById('json-search-input');
+    searchInput.addEventListener('input', applyJsonSearch);
+    searchInput.addEventListener('keydown', (event) => {
+        if (event.isComposing) return;
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            moveJsonSearch(event.shiftKey ? -1 : 1);
+        } else if (event.key === 'Escape') {
+            event.preventDefault();
+            searchInput.value = '';
+            applyJsonSearch();
+        }
+    });
+    document.getElementById('json-search-prev').addEventListener('click', () => moveJsonSearch(-1));
+    document.getElementById('json-search-next').addEventListener('click', () => moveJsonSearch(1));
+    const jsonInput = document.getElementById('json-input');
+    jsonInput.addEventListener('scroll', syncJsonHighlights);
+    new ResizeObserver(syncJsonHighlights).observe(jsonInput);
+    const panelTabs = [...document.querySelectorAll('[data-json-panel]')];
+    panelTabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => selectJsonPanel(tab.dataset.jsonPanel));
+        tab.addEventListener('keydown', (event) => {
+            let target;
+            if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') target = panelTabs[1 - index];
+            else if (event.key === 'Home') target = panelTabs[0];
+            else if (event.key === 'End') target = panelTabs[panelTabs.length - 1];
+            else return;
+            event.preventDefault();
+            target.focus();
+            selectJsonPanel(target.dataset.jsonPanel);
+        });
+    });
 }
 
 async function init() {
-    setupEvents(); renderHistory(); await loadTimezones(); updateCurrentTime(); setInterval(updateCurrentTime, 1000); jsonStats(''); setStatus('就绪');
+    setupEvents(); await setupWindowControls(); renderHistory(); await loadTimezones(); updateCurrentTime(); setInterval(updateCurrentTime, 1000); jsonStats(''); setStatus('就绪');
 }
 
 document.addEventListener('DOMContentLoaded', init);

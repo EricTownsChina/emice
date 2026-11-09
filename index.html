@@ -7,17 +7,33 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+        <symbol id="icon-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></symbol>
+        <symbol id="icon-copy-done" viewBox="0 0 16 16"><path d="m3 8 3 3 7-7"/></symbol>
+        <symbol id="icon-copy-error" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 4.5v4M8 11h.01"/></symbol>
+    </defs></svg>
     <div class="app-shell">
-        <span id="app-status" class="app-status" aria-live="polite"></span>
+        <header class="app-titlebar" data-tauri-drag-region>
+            <img class="titlebar-logo" src="/src-tauri/icons/32x32.png" width="20" height="20" alt="emice" title="emice" draggable="false" data-tauri-drag-region>
+            <select class="tool-select" aria-label="工具">
+                <option value="time" selected>◷ 时间</option>
+                <option value="json">{ } JSON</option>
+            </select>
+            <div id="titlebar-time-actions" class="titlebar-time-actions">
+                <span class="timestamp-label">当前</span><span id="current-timestamp" title="当前时间戳（毫秒）">--</span>
+                <button class="copy-icon-btn copy-btn" data-copy-target="current-timestamp" title="复制时间戳" aria-label="复制时间戳" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-copy"/></svg></button>
+            </div>
+            <div id="titlebar-json-actions" class="json-actions" role="toolbar" aria-label="JSON 操作" hidden><button class="tool-btn accent" data-json-action="format" type="button">格式化</button><button class="tool-btn" data-json-action="compact" type="button">压缩</button><button class="tool-btn" data-json-action="copy" type="button">复制</button><span class="toolbar-divider"></span><button class="tool-btn" data-json-action="escape" type="button">转义</button><button class="tool-btn" data-json-action="unescape" type="button">去转义</button><button class="tool-btn" data-json-action="clear" type="button">清空</button></div>
+            <div class="titlebar-drag-area" data-tauri-drag-region></div>
+            <div id="window-controls" class="window-controls" hidden>
+                <button id="window-minimize" class="window-control" type="button" title="最小化" aria-label="最小化"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10"/></svg></button>
+                <button id="window-maximize" class="window-control" type="button" title="最大化" aria-label="最大化"><svg class="maximize-icon" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9"/></svg><svg class="restore-icon" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 3V1.5h6.5V8H9"/><rect x="1.5" y="4" width="6.5" height="6.5"/></svg></button>
+                <button id="window-close" class="window-control window-close" type="button" title="关闭" aria-label="关闭"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="m1.5 1.5 9 9m0-9-9 9"/></svg></button>
+            </div>
+        </header>
+        <span id="app-status" class="app-status" role="status" aria-live="polite"></span>
         <main class="content">
             <section id="time-tab" class="tab-content active">
-                <div class="now-bar">
-                    <select class="tool-select" aria-label="工具">
-                        <option value="time" selected>◷ 时间</option>
-                        <option value="json">{ } JSON</option>
-                    </select>
-                    <strong id="current-timestamp">--</strong><button class="icon-btn copy-btn" data-copy-target="current-timestamp" title="复制" aria-label="复制时间戳" type="button">⧉</button>
-                </div>
                 <section class="time-panel">
                     <div class="time-entry">
                         <button id="time-direction-btn" class="mode-btn" type="button" title="切换转换方向" aria-label="时间戳转日期，点击切换方向">时间戳 <span id="time-direction-arrow">→</span> 日期</button>
@@ -31,21 +47,25 @@
             </section>
             <section id="json-tab" class="tab-content">
                 <section class="json-panel">
-                    <div class="json-toolbar" role="toolbar" aria-label="JSON 操作">
-                        <select class="tool-select" aria-label="工具">
-                            <option value="time" selected>◷ 时间</option>
-                            <option value="json">{ } JSON</option>
-                        </select>
-                        <div class="json-actions"><button class="tool-btn accent" data-json-action="format" type="button">格式化</button><button class="tool-btn" data-json-action="compact" type="button">压缩</button><button class="tool-btn" data-json-action="copy" type="button">复制</button><span class="toolbar-divider"></span><button class="tool-btn" data-json-action="escape" type="button">转义</button><button class="tool-btn" data-json-action="unescape" type="button">去转义</button><button class="tool-btn" data-json-action="clear" type="button">清空</button></div>
-                        <span class="toolbar-spacer"></span><div id="json-message" class="json-message" aria-live="polite"></div><div class="json-search"><span>⌕</span><input id="json-search-input" type="search" placeholder="查找"><span id="json-search-count"></span></div>
+                    <div class="pane-label">
+                        <div class="json-panel-tabs" role="tablist" aria-label="JSON 面板">
+                            <button id="json-text-tab" class="json-panel-tab" type="button" role="tab" data-json-panel="text" aria-selected="true" aria-controls="json-editor">文本</button>
+                            <button id="json-view-tab" class="json-panel-tab" type="button" role="tab" data-json-panel="view" aria-selected="false" aria-controls="json-preview" tabindex="-1">视图</button>
+                        </div>
+                        <div class="json-panel-tools">
+                            <div id="json-message" class="json-message" aria-live="polite"></div>
+                            <span id="json-line-count">共 1 行</span>
+                            <div class="json-search"><span>⌕</span><input id="json-search-input" type="search" autocomplete="off" spellcheck="false" placeholder="查找" aria-label="查找当前面板" aria-describedby="json-search-count"><span id="json-search-count" class="json-search-count" role="status" aria-live="polite"></span><button id="json-search-prev" class="json-search-nav" type="button" title="上一个（Shift+Enter）" aria-label="上一个匹配项" disabled>↑</button><button id="json-search-next" class="json-search-nav" type="button" title="下一个（Enter）" aria-label="下一个匹配项" disabled>↓</button></div>
+                        </div>
                     </div>
                     <div class="json-workspace">
-                        <div class="json-editor-pane">
-                            <div class="pane-label"><span>输入</span><div class="preview-actions"><span id="json-line-count">第 1 行</span><button id="toggle-json-preview-btn" class="tool-btn" type="button" aria-expanded="false" aria-controls="json-preview">展开视图</button></div></div>
-                            <textarea id="json-input" aria-label="JSON 输入" spellcheck="false" wrap="off" placeholder="粘贴 JSON"></textarea>
+                        <div id="json-editor" class="json-editor-pane" role="tabpanel" aria-labelledby="json-text-tab">
+                            <div class="json-text-editor">
+                                <pre id="json-highlights" class="json-highlights" aria-hidden="true"></pre>
+                                <textarea id="json-input" aria-label="JSON 输入" spellcheck="false" wrap="off" placeholder="粘贴 JSON"></textarea>
+                            </div>
                         </div>
-                        <div id="json-preview" class="json-preview-pane" hidden>
-                            <div class="pane-label"><span>视图</span><div class="preview-actions"><button id="expand-json-btn" class="mini-btn" type="button">展开</button><button id="collapse-json-btn" class="mini-btn" type="button">收缩</button></div></div>
+                        <div id="json-preview" class="json-preview-pane" role="tabpanel" aria-labelledby="json-view-tab" tabindex="0" hidden>
                             <div id="json-tree" class="json-tree"></div>
                         </div>
                     </div>
