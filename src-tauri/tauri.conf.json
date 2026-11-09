@@ -19,13 +19,15 @@
         "width": 900,
         "height": 700,
         "minWidth": 600,
-        "minHeight": 500
+        "minHeight": 500,
+        "transparent": true
       }
     ],
     "security": {
       "csp": null
     },
-    "withGlobalTauri": true
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,

@@ -8,6 +8,9 @@
 </head>
 <body>
     <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+        <symbol id="icon-tool-time" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.75V8l2.25 1.5"/></symbol>
+        <symbol id="icon-tool-json" viewBox="0 0 16 16"><path d="M6.2 3.25c-1.15 0-1.7.5-1.7 1.55v1.6c0 .8-.45 1.35-1.25 1.6.8.25 1.25.8 1.25 1.6v1.6c0 1.05.55 1.55 1.7 1.55M9.8 3.25c1.15 0 1.7.5 1.7 1.55v1.6c0 .8.45 1.35 1.25 1.6-.8.25-1.25.8-1.25 1.6v1.6c0 1.05-.55 1.55-1.7 1.55"/></symbol>
+        <symbol id="icon-search" viewBox="0 0 16 16"><circle cx="6.8" cy="6.8" r="4.5"/><path d="m10.2 10.2 3.6 3.6"/></symbol>
         <symbol id="icon-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></symbol>
         <symbol id="icon-copy-done" viewBox="0 0 16 16"><path d="m3 8 3 3 7-7"/></symbol>
         <symbol id="icon-copy-error" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 4.5v4M8 11h.01"/></symbol>
@@ -15,10 +18,22 @@
     <div class="app-shell">
         <header class="app-titlebar" data-tauri-drag-region>
             <img class="titlebar-logo" src="/src-tauri/icons/32x32.png" width="20" height="20" alt="emice" title="emice" draggable="false" data-tauri-drag-region>
-            <select class="tool-select" aria-label="工具">
-                <option value="time" selected>◷ 时间</option>
-                <option value="json">{ } JSON</option>
-            </select>
+            <div id="tool-select" class="tool-select-wrap">
+                <button id="tool-select-btn" class="tool-select" type="button" aria-label="工具" aria-haspopup="listbox" aria-expanded="false" aria-controls="tool-select-menu">
+                    <span class="tool-select-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use id="tool-select-current-icon" href="#icon-tool-time"/></svg></span>
+                    <span id="tool-select-current-label" class="tool-select-label">时间</span>
+                </button>
+                <div id="tool-select-menu" class="tool-select-menu" role="listbox" aria-label="工具" hidden>
+                    <button class="tool-select-option" type="button" role="option" data-tool="time" aria-selected="true">
+                        <span class="tool-select-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-tool-time"/></svg></span>
+                        <span class="tool-select-label">时间</span>
+                    </button>
+                    <button class="tool-select-option" type="button" role="option" data-tool="json" aria-selected="false">
+                        <span class="tool-select-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-tool-json"/></svg></span>
+                        <span class="tool-select-label">JSON</span>
+                    </button>
+                </div>
+            </div>
             <div id="titlebar-time-actions" class="titlebar-time-actions">
                 <span class="timestamp-label">当前</span><span id="current-timestamp" title="当前时间戳（毫秒）">--</span>
                 <button class="copy-icon-btn copy-btn" data-copy-target="current-timestamp" title="复制时间戳" aria-label="复制时间戳" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-copy"/></svg></button>
@@ -55,18 +70,18 @@
                         <div class="json-panel-tools">
                             <div id="json-message" class="json-message" aria-live="polite"></div>
                             <span id="json-line-count">共 1 行</span>
-                            <div class="json-search"><span>⌕</span><input id="json-search-input" type="search" autocomplete="off" spellcheck="false" placeholder="查找" aria-label="查找当前面板" aria-describedby="json-search-count"><span id="json-search-count" class="json-search-count" role="status" aria-live="polite"></span><button id="json-search-prev" class="json-search-nav" type="button" title="上一个（Shift+Enter）" aria-label="上一个匹配项" disabled>↑</button><button id="json-search-next" class="json-search-nav" type="button" title="下一个（Enter）" aria-label="下一个匹配项" disabled>↓</button></div>
+                            <div class="json-search"><svg class="json-search-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-search"/></svg><input id="json-search-input" type="search" autocomplete="off" spellcheck="false" placeholder="查找" aria-label="查找当前面板" aria-describedby="json-search-count"><span id="json-search-count" class="json-search-count" role="status" aria-live="polite"></span><button id="json-search-prev" class="json-search-nav" type="button" title="上一个（Shift+Enter）" aria-label="上一个匹配项" disabled>↑</button><button id="json-search-next" class="json-search-nav" type="button" title="下一个（Enter）" aria-label="下一个匹配项" disabled>↓</button></div>
                         </div>
                     </div>
                     <div class="json-workspace">
                         <div id="json-editor" class="json-editor-pane" role="tabpanel" aria-labelledby="json-text-tab">
                             <div class="json-text-editor">
-                                <pre id="json-highlights" class="json-highlights" aria-hidden="true"></pre>
+                                <pre id="json-highlights" class="json-highlights" aria-hidden="true" hidden></pre>
                                 <textarea id="json-input" aria-label="JSON 输入" spellcheck="false" wrap="off" placeholder="粘贴 JSON"></textarea>
                             </div>
                         </div>
                         <div id="json-preview" class="json-preview-pane" role="tabpanel" aria-labelledby="json-view-tab" tabindex="0" hidden>
-                            <div id="json-tree" class="json-tree"></div>
+                            <div id="json-tree" class="json-tree"><div class="tree-placeholder">粘贴 JSON</div></div>
                         </div>
                     </div>
                 </section>

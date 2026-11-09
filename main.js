@@ -12,6 +12,10 @@ let invokeApi = null;
 let activeTimeMode = 'timestamp';
 let timezones = [];
 let timeHistory = loadHistory();
+let currentTimeTimer = null;
+let cachedJson = null;
+let renderedJsonRaw = null;
+let treeSearchQuery = '';
 
 function getInvoke() {
     if (invokeApi) return invokeApi;
@@ -191,7 +195,17 @@ async function copyText(value, button) {
     copyFeedback.set(button, { original, timer });
 }
 
-function updateCurrentTime() { command('get_current_time').then((result) => { document.getElementById('current-timestamp').textContent = result.timestamp; }).catch(() => {}); }
+function updateCurrentTime() {
+    document.getElementById('current-timestamp').textContent = Date.now();
+}
+
+function syncCurrentTimeTimer() {
+    clearInterval(currentTimeTimer);
+    currentTimeTimer = null;
+    if (document.hidden || !document.getElementById('time-tab').classList.contains('active')) return;
+    updateCurrentTime();
+    currentTimeTimer = setInterval(updateCurrentTime, 1000);
+}
 
 function jsonStats(value) {
     const lines = value ? value.split(/\r?\n/).length : 1;
@@ -201,8 +215,13 @@ function jsonStats(value) {
 
 function readJson() {
     const raw = document.getElementById('json-input').value.trim();
-    if (!raw) return { raw, value: null, error: null };
-    try { return { raw, value: JSON.parse(raw), error: null }; } catch (error) { return { raw, value: null, error }; }
+    if (cachedJson?.raw === raw) return cachedJson;
+    try {
+        cachedJson = { raw, value: raw ? JSON.parse(raw) : null, error: null };
+    } catch (error) {
+        cachedJson = { raw, value: null, error };
+    }
+    return cachedJson;
 }
 
 function updateJsonValidity(result) {
@@ -221,16 +240,29 @@ function nodeLabel(value, key, depth = 0) {
 }
 
 function renderJsonTree(result) {
+    if (renderedJsonRaw === result.raw) return;
+    renderedJsonRaw = result.raw;
+    treeSearchQuery = '';
     const tree = document.getElementById('json-tree');
     if (!result.raw || result.error) {
-        tree.innerHTML = `<div class="tree-placeholder">${result.error ? 'JSON 格式有误，请切换到文本面板修正' : '输入有效 JSON 后显示结构'}</div>`;
+        tree.innerHTML = `<div class="tree-placeholder">${result.error ? 'JSON 格式有误，请切换到文本面板修正' : '粘贴 JSON'}</div>`;
         return;
     }
     tree.innerHTML = nodeLabel(result.value, null);
 }
 
 function updateJsonTree({ revealSearch = false } = {}) {
-    jsonStats(document.getElementById('json-input').value);
+    const value = document.getElementById('json-input').value;
+    const raw = value.trim();
+    jsonStats(value);
+    if (cachedJson?.raw !== raw) cachedJson = null;
+    if (renderedJsonRaw !== null && renderedJsonRaw !== raw) {
+        // Release the previous document even when the tree is hidden.
+        jsonSearchState.marks = [];
+        document.getElementById('json-tree').replaceChildren();
+        renderedJsonRaw = null;
+        treeSearchQuery = '';
+    }
     document.getElementById('json-message').textContent = '';
     if (!document.getElementById('json-preview').hidden) {
         const result = readJson();
@@ -309,6 +341,7 @@ function highlightJsonMatches(text, matches) {
 function syncJsonHighlights() {
     const input = document.getElementById('json-input');
     const highlights = document.getElementById('json-highlights');
+    if (highlights.hidden || document.getElementById('json-editor').hidden) return;
     highlights.style.width = `${input.clientWidth}px`;
     highlights.style.height = `${input.clientHeight}px`;
     highlights.scrollTop = input.scrollTop;
@@ -319,16 +352,25 @@ function applyJsonSearch({ reveal = true } = {}) {
     const query = document.getElementById('json-search-input').value;
     const panel = document.getElementById('json-preview').hidden ? 'text' : 'view';
     const previousIndex = query === jsonSearchState.query && panel === jsonSearchState.panel ? jsonSearchState.index : 0;
-    if (document.getElementById('json-preview').hidden) {
+    const highlights = document.getElementById('json-highlights');
+    // A transparent copy of the entire document is only needed for active text matches.
+    if (panel === 'text' && query) {
         const input = document.getElementById('json-input');
         const matches = findJsonMatches(input.value, query);
-        document.getElementById('json-highlights').innerHTML = highlightJsonMatches(input.value, matches) + '\n';
+        highlights.hidden = !matches.length;
+        if (matches.length) highlights.innerHTML = highlightJsonMatches(input.value, matches) + '\n';
+        else highlights.replaceChildren();
         syncJsonHighlights();
     } else {
+        highlights.hidden = true;
+        if (highlights.firstChild) highlights.replaceChildren();
+    }
+    if (panel === 'view' && query !== treeSearchQuery) {
         document.querySelectorAll('#json-tree .tree-key, #json-tree .tree-value').forEach((element) => {
             const text = element.textContent;
             const matches = findJsonMatches(text, query);
-            element.innerHTML = highlightJsonMatches(text, matches);
+            if (matches.length) element.innerHTML = highlightJsonMatches(text, matches);
+            else if (element.querySelector('.json-match')) element.textContent = text;
             if (matches.length) {
                 let ancestor = element.parentElement;
                 while (ancestor && ancestor.id !== 'json-tree') {
@@ -337,6 +379,7 @@ function applyJsonSearch({ reveal = true } = {}) {
                 }
             }
         });
+        treeSearchQuery = query;
     }
     jsonSearchState.query = query;
     jsonSearchState.panel = panel;
@@ -389,6 +432,7 @@ async function setupWindowControls() {
     const syncMaximized = async () => {
         try {
             const maximized = await appWindow.isMaximized();
+            document.documentElement.classList.toggle('is-maximized', maximized);
             maximizeButton.classList.toggle('is-maximized', maximized);
             maximizeButton.title = maximized ? '还原' : '最大化';
             maximizeButton.setAttribute('aria-label', maximizeButton.title);
@@ -421,14 +465,85 @@ async function setupWindowControls() {
 }
 
 function setupEvents() {
-    document.querySelectorAll('.tool-select').forEach((select) => select.addEventListener('change', () => {
-        const tool = select.value;
-        document.querySelectorAll('.tool-select').forEach((item) => { item.value = tool; });
+    document.addEventListener('visibilitychange', syncCurrentTimeTimer);
+    window.addEventListener('pagehide', () => {
+        clearInterval(currentTimeTimer);
+        currentTimeTimer = null;
+    });
+    window.addEventListener('pageshow', syncCurrentTimeTimer);
+    const toolSelectWrap = document.getElementById('tool-select');
+    const toolSelectBtn = document.getElementById('tool-select-btn');
+    const toolSelectMenu = document.getElementById('tool-select-menu');
+    const toolOptions = [...toolSelectMenu.querySelectorAll('.tool-select-option')];
+    const closeToolMenu = () => {
+        toolSelectMenu.hidden = true;
+        toolSelectBtn.setAttribute('aria-expanded', 'false');
+    };
+    const openToolMenu = (focusSelected = false) => {
+        toolSelectMenu.hidden = false;
+        toolSelectBtn.setAttribute('aria-expanded', 'true');
+        if (focusSelected) {
+            (toolOptions.find((option) => option.getAttribute('aria-selected') === 'true') || toolOptions[0])?.focus();
+        }
+    };
+    const selectTool = (tool) => {
+        toolOptions.forEach((option) => {
+            const selected = option.dataset.tool === tool;
+            option.setAttribute('aria-selected', String(selected));
+            if (selected) {
+                const iconHref = option.querySelector('use')?.getAttribute('href');
+                const label = option.querySelector('.tool-select-label')?.textContent;
+                if (iconHref) document.getElementById('tool-select-current-icon')?.setAttribute('href', iconHref);
+                if (label) document.getElementById('tool-select-current-label').textContent = label;
+            }
+        });
         document.querySelectorAll('.tab-content').forEach((item) => item.classList.toggle('active', item.id === `${tool}-tab`));
         document.getElementById('titlebar-json-actions').hidden = tool !== 'json';
         document.getElementById('titlebar-time-actions').hidden = tool !== 'time';
-        select.focus();
-    }));
+        syncCurrentTimeTimer();
+    };
+    toolSelectBtn.addEventListener('click', () => {
+        if (toolSelectMenu.hidden) openToolMenu();
+        else closeToolMenu();
+    });
+    toolSelectBtn.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            openToolMenu(true);
+        } else if (event.key === 'Escape' && !toolSelectMenu.hidden) {
+            event.preventDefault();
+            closeToolMenu();
+        }
+    });
+    toolOptions.forEach((option, index) => {
+        option.addEventListener('click', () => {
+            selectTool(option.dataset.tool);
+            closeToolMenu();
+            toolSelectBtn.focus();
+        });
+        option.addEventListener('keydown', (event) => {
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const next = toolOptions[(index + (event.key === 'ArrowDown' ? 1 : -1) + toolOptions.length) % toolOptions.length];
+                next?.focus();
+            } else if (event.key === 'Home') {
+                event.preventDefault();
+                toolOptions[0]?.focus();
+            } else if (event.key === 'End') {
+                event.preventDefault();
+                toolOptions[toolOptions.length - 1]?.focus();
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                closeToolMenu();
+                toolSelectBtn.focus();
+            } else if (event.key === 'Tab') {
+                closeToolMenu();
+            }
+        });
+    });
+    document.addEventListener('pointerdown', (event) => {
+        if (!toolSelectMenu.hidden && !toolSelectWrap.contains(event.target)) closeToolMenu();
+    });
     document.getElementById('time-direction-btn').addEventListener('click', (event) => {
         activeTimeMode = activeTimeMode === 'timestamp' ? 'datetime' : 'timestamp';
         document.getElementById('time-direction-arrow').textContent = activeTimeMode === 'timestamp' ? '→' : '←';
@@ -489,7 +604,7 @@ function setupEvents() {
 }
 
 async function init() {
-    setupEvents(); await setupWindowControls(); renderHistory(); await loadTimezones(); updateCurrentTime(); setInterval(updateCurrentTime, 1000); jsonStats(''); setStatus('就绪');
+    setupEvents(); await setupWindowControls(); renderHistory(); await loadTimezones(); syncCurrentTimeTimer(); jsonStats(''); setStatus('就绪');
 }
 
 document.addEventListener('DOMContentLoaded', init);
