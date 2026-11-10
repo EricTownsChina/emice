@@ -10,6 +10,7 @@
     <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
         <symbol id="icon-tool-time" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.75"/><path d="M8 4.75V8l2.25 1.5"/></symbol>
         <symbol id="icon-tool-json" viewBox="0 0 16 16"><path d="M6.2 3.25c-1.15 0-1.7.5-1.7 1.55v1.6c0 .8-.45 1.35-1.25 1.6.8.25 1.25.8 1.25 1.6v1.6c0 1.05.55 1.55 1.7 1.55M9.8 3.25c1.15 0 1.7.5 1.7 1.55v1.6c0 .8.45 1.35 1.25 1.6-.8.25-1.25.8-1.25 1.6v1.6c0 1.05-.55 1.55-1.7 1.55"/></symbol>
+        <symbol id="icon-json-diff" viewBox="0 0 16 16"><path d="M5.5 2.5v11M10.5 2.5v11M2.5 5.5h6M7.5 10.5h6M10.5 7.5v6"/></symbol>
         <symbol id="icon-search" viewBox="0 0 16 16"><circle cx="6.8" cy="6.8" r="4.5"/><path d="m10.2 10.2 3.6 3.6"/></symbol>
         <symbol id="icon-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></symbol>
         <symbol id="icon-copy-done" viewBox="0 0 16 16"><path d="m3 8 3 3 7-7"/></symbol>
@@ -38,7 +39,7 @@
                 <span class="timestamp-label">当前</span><span id="current-timestamp" title="当前时间戳（毫秒）">--</span>
                 <button class="copy-icon-btn copy-btn" data-copy-target="current-timestamp" title="复制时间戳" aria-label="复制时间戳" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-copy"/></svg></button>
             </div>
-            <div id="titlebar-json-actions" class="json-actions" role="toolbar" aria-label="JSON 操作" hidden><button class="tool-btn accent" data-json-action="format" type="button">格式化</button><button class="tool-btn" data-json-action="compact" type="button">压缩</button><button class="tool-btn" data-json-action="copy" type="button">复制</button><span class="toolbar-divider"></span><button class="tool-btn" data-json-action="escape" type="button">转义</button><button class="tool-btn" data-json-action="unescape" type="button">去转义</button><button class="tool-btn" data-json-action="clear" type="button">清空</button></div>
+            <div id="titlebar-json-actions" class="json-actions" role="toolbar" aria-label="JSON 操作" hidden><button class="tool-btn accent" data-json-action="format" type="button">格式化</button><button class="tool-btn" data-json-action="compact" type="button">压缩</button><span class="toolbar-divider"></span><button class="tool-btn" data-json-action="escape" type="button">转义</button><button class="tool-btn" data-json-action="unescape" type="button">去转义</button><button class="tool-btn" data-json-action="clear" type="button">清空</button></div>
             <div class="titlebar-drag-area" data-tauri-drag-region></div>
             <div id="window-controls" class="window-controls" hidden>
                 <button id="window-minimize" class="window-control" type="button" title="最小化" aria-label="最小化"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10"/></svg></button>
@@ -62,28 +63,119 @@
             </section>
             <section id="json-tab" class="tab-content">
                 <section class="json-panel">
-                    <div class="pane-label">
-                        <div class="json-panel-tabs" role="tablist" aria-label="JSON 面板">
+                    <div id="json-base-toolbar" class="pane-label">
+                        <div id="json-feature-select" class="tool-select-wrap json-feature-select">
+                            <button id="json-feature-select-btn" class="tool-select" type="button" aria-label="JSON 功能" aria-haspopup="listbox" aria-expanded="false" aria-controls="json-feature-select-menu">
+                                <span class="tool-select-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use id="json-feature-current-icon" href="#icon-tool-json"/></svg></span>
+                                <span id="json-feature-current-label" class="tool-select-label">JSON</span>
+                            </button>
+                            <div id="json-feature-select-menu" class="tool-select-menu" role="listbox" aria-label="JSON 功能" hidden>
+                                <button class="tool-select-option" type="button" role="option" data-json-feature="" aria-selected="true">
+                                    <span class="tool-select-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-tool-json"/></svg></span>
+                                    <span class="tool-select-label">JSON</span>
+                                </button>
+                                <button class="tool-select-option" type="button" role="option" data-json-feature="path" aria-selected="false">
+                                    <span class="tool-select-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-search"/></svg></span>
+                                    <span class="tool-select-label">JSONPath</span>
+                                </button>
+                                <button class="tool-select-option" type="button" role="option" data-json-feature="diff" aria-selected="false">
+                                    <span class="tool-select-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-json-diff"/></svg></span>
+                                    <span class="tool-select-label">JSON 对比</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="json-source-tabs" class="json-panel-tabs" role="tablist" aria-label="JSON 面板">
                             <button id="json-text-tab" class="json-panel-tab" type="button" role="tab" data-json-panel="text" aria-selected="true" aria-controls="json-editor">文本</button>
                             <button id="json-view-tab" class="json-panel-tab" type="button" role="tab" data-json-panel="view" aria-selected="false" aria-controls="json-preview" tabindex="-1">视图</button>
                         </div>
-                        <div class="json-panel-tools">
-                            <div id="json-message" class="json-message" aria-live="polite"></div>
-                            <span id="json-line-count">共 1 行</span>
-                            <div class="json-search"><svg class="json-search-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-search"/></svg><input id="json-search-input" type="search" autocomplete="off" spellcheck="false" placeholder="查找" aria-label="查找当前面板" aria-describedby="json-search-count"><span id="json-search-count" class="json-search-count" role="status" aria-live="polite"></span><button id="json-search-prev" class="json-search-nav" type="button" title="上一个（Shift+Enter）" aria-label="上一个匹配项" disabled>↑</button><button id="json-search-next" class="json-search-nav" type="button" title="下一个（Enter）" aria-label="下一个匹配项" disabled>↓</button></div>
+                        <div id="diff-tools" class="diff-tools" hidden>
+                            <div id="diff-actions" class="json-actions" role="toolbar" aria-label="JSON 对比操作"><button id="diff-compare" class="tool-btn accent" type="button" title="按 JSON 结构比较（Ctrl+Enter），忽略对象字段顺序与排版">对比</button><button id="diff-swap" class="tool-btn" type="button">交换</button><button id="diff-clear" class="tool-btn" type="button">清空</button></div>
+                            <span id="diff-status" class="jsonpath-status" role="status" aria-live="polite"></span>
+                            <label class="diff-filter" title="隐藏内容相同的字段与分支"><input id="diff-only-changes" type="checkbox">仅差异</label>
+                            <button id="diff-expand" class="tool-btn" type="button" hidden>展开全部</button>
                         </div>
-                    </div>
-                    <div class="json-workspace">
-                        <div id="json-editor" class="json-editor-pane" role="tabpanel" aria-labelledby="json-text-tab">
-                            <div class="json-text-editor">
-                                <pre id="json-highlights" class="json-highlights" aria-hidden="true" hidden></pre>
-                                <textarea id="json-input" aria-label="JSON 输入" spellcheck="false" wrap="off" placeholder="粘贴 JSON"></textarea>
+                        <div class="json-panel-tools">
+                            <div id="json-source-tools" class="json-source-tools">
+                                <div id="json-message" class="json-message" aria-live="polite"></div>
+                                <span id="json-line-count">共 1 行</span>
+                                <div class="json-search"><svg class="json-search-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-search"/></svg><input id="json-search-input" type="search" autocomplete="off" spellcheck="false" placeholder="查找" aria-label="查找当前面板" aria-describedby="json-search-count"><span id="json-search-count" class="json-search-count" role="status" aria-live="polite"></span><button id="json-search-prev" class="json-search-nav" type="button" title="上一个（Shift+Enter）" aria-label="上一个匹配项" disabled>↑</button><button id="json-search-next" class="json-search-nav" type="button" title="下一个（Enter）" aria-label="下一个匹配项" disabled>↓</button></div>
                             </div>
                         </div>
-                        <div id="json-preview" class="json-preview-pane" role="tabpanel" aria-labelledby="json-view-tab" tabindex="0" hidden>
-                            <div id="json-tree" class="json-tree"><div class="tree-placeholder">粘贴 JSON</div></div>
-                        </div>
                     </div>
+                    <form id="jsonpath-query" class="jsonpath-query" aria-label="JSONPath 查询" hidden>
+                        <label for="jsonpath-input">JSONPath</label>
+                        <input id="jsonpath-input" type="text" autocomplete="off" spellcheck="false" placeholder="$.store.book[*].title" aria-label="JSONPath 表达式" aria-describedby="jsonpath-status">
+                        <button class="tool-btn accent" type="submit" title="执行查询（Enter）">查询</button>
+                        <details id="jsonpath-help" class="jsonpath-help">
+                            <summary title="JSONPath 语法参考" aria-label="JSONPath 语法参考">?</summary>
+                            <div class="jsonpath-help-body">
+                                <button type="button" data-jsonpath-example="$">$ <span>整个 JSON</span></button>
+                                <button type="button" data-jsonpath-example="$.store.book[*].title">$.store.book[*].title <span>数组中的字段</span></button>
+                                <button type="button" data-jsonpath-example="$..price">$..price <span>递归查找字段</span></button>
+                                <button type="button" data-jsonpath-example="$.store.book[0,2]">$.store.book[0,2] <span>多个下标</span></button>
+                                <button type="button" data-jsonpath-example="$.store.book[0:3]">$.store.book[0:3] <span>数组切片</span></button>
+                                <button type="button" data-jsonpath-example="$.store.book[?(@.price &lt; 10)]">$.store.book[?(@.price &lt; 10)] <span>条件过滤</span></button>
+                                <a class="jsonpath-reference" href="https://goessner.net/" target="_blank" rel="noopener noreferrer">https://goessner.net/ ↗</a>
+                            </div>
+                        </details>
+                    </form>
+                    <div id="json-source-content" class="json-content">
+                        <div class="json-workspace">
+                            <div id="json-editor" class="json-editor-pane" role="tabpanel" aria-labelledby="json-text-tab">
+                                <div class="json-text-editor">
+                                    <pre id="json-highlights" class="json-highlights" aria-hidden="true" hidden></pre>
+                                    <textarea id="json-input" aria-label="JSON 输入" spellcheck="false" wrap="off" placeholder="粘贴 JSON"></textarea>
+                                </div>
+                            </div>
+                            <div id="json-preview" class="json-preview-pane" role="tabpanel" aria-labelledby="json-view-tab" tabindex="0" hidden>
+                                <div id="json-tree" class="json-tree"><div class="tree-placeholder">粘贴 JSON</div></div>
+                            </div>
+                        </div>
+                        <div id="jsonpath-splitter" class="panel-splitter" role="separator" tabindex="0" aria-label="调整 JSON 与查询结果宽度" aria-orientation="vertical" aria-controls="json-editor json-preview jsonpath-result" aria-valuemin="20" aria-valuemax="80" aria-valuenow="55" title="拖动调整宽度，双击恢复默认比例" hidden></div>
+                        <section id="jsonpath-result" class="jsonpath-result" aria-label="JSONPath 查询结果" aria-busy="false" hidden>
+                            <div class="jsonpath-result-bar">
+                                <span id="jsonpath-status" class="jsonpath-status" role="status" aria-live="polite">输入表达式查询 JSON</span>
+                                <div class="jsonpath-modes" role="group" aria-label="结果类型">
+                                    <button class="jsonpath-mode" data-jsonpath-mode="value" type="button" aria-pressed="true">值</button>
+                                    <button class="jsonpath-mode" data-jsonpath-mode="path" type="button" aria-pressed="false">路径</button>
+                                </div>
+                                <button id="jsonpath-prev" class="json-search-nav" type="button" title="上一页" aria-label="查询结果上一页" disabled>‹</button>
+                                <span id="jsonpath-page" class="jsonpath-page"></span>
+                                <button id="jsonpath-next" class="json-search-nav" type="button" title="下一页（每页 50 项）" aria-label="查询结果下一页" disabled>›</button>
+                                <button id="jsonpath-copy" class="copy-icon-btn" type="button" title="复制全部查询结果" aria-label="复制全部查询结果" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-copy"/></svg></button>
+                            </div>
+                            <div class="pane-label jsonpath-view-bar">
+                                <div class="json-panel-tabs" role="tablist" aria-label="查询结果面板">
+                                    <button id="jsonpath-text-tab" class="json-panel-tab" type="button" role="tab" data-jsonpath-panel="text" aria-selected="true" aria-controls="jsonpath-result-text">文本</button>
+                                    <button id="jsonpath-view-tab" class="json-panel-tab" type="button" role="tab" data-jsonpath-panel="view" aria-selected="false" aria-controls="jsonpath-result-view" tabindex="-1">视图</button>
+                                </div>
+                                <button id="jsonpath-collapse" class="tool-btn" type="button" hidden>收起全部</button>
+                            </div>
+                            <div id="jsonpath-result-text" class="jsonpath-result-pane" role="tabpanel" aria-labelledby="jsonpath-text-tab">
+                                <textarea id="jsonpath-output" class="jsonpath-output" readonly wrap="off" spellcheck="false" aria-label="JSONPath 查询结果" placeholder="输入表达式查询 JSON"></textarea>
+                            </div>
+                            <div id="jsonpath-result-view" class="json-tree jsonpath-result-pane" role="tabpanel" aria-labelledby="jsonpath-view-tab" tabindex="0" hidden></div>
+                        </section>
+                    </div>
+                    <section id="json-diff" class="json-diff-panel" hidden aria-label="JSON 对比" aria-busy="false">
+                        <div id="diff-content" class="diff-content">
+                            <div id="diff-text-panel" class="diff-text-panel" role="tabpanel" aria-labelledby="json-text-tab">
+                                <section class="diff-input-pane" aria-label="原始 JSON">
+                                    <div class="pane-label"><span>原始 JSON</span><div class="diff-pane-tools"><button id="diff-use-current" class="tool-btn" type="button" title="填入 JSON 工具中的内容">使用当前 JSON</button><button class="copy-icon-btn" data-diff-copy="left" type="button" title="复制原始 JSON" aria-label="复制原始 JSON"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-copy"/></svg></button></div></div>
+                                    <textarea id="diff-left" aria-label="原始 JSON 输入" spellcheck="false" wrap="off" placeholder="粘贴原始 JSON"></textarea>
+                                </section>
+                                <section class="diff-input-pane" aria-label="新的 JSON">
+                                    <div class="pane-label"><span>新的 JSON</span><button class="copy-icon-btn" data-diff-copy="right" type="button" title="复制新的 JSON" aria-label="复制新的 JSON"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-copy"/></svg></button></div>
+                                    <textarea id="diff-right" aria-label="新的 JSON 输入" spellcheck="false" wrap="off" placeholder="粘贴新的 JSON"></textarea>
+                                </section>
+                            </div>
+                            <div id="diff-view-panel" class="diff-view-panel" role="tabpanel" aria-labelledby="json-view-tab" hidden>
+                                <div class="diff-headings"><div class="pane-label">原始 JSON</div><div class="pane-label">新的 JSON</div></div>
+                                <div id="diff-tree" class="diff-tree" tabindex="0" aria-label="JSON 结构差异"></div>
+                            </div>
+                            <div id="diff-splitter" class="panel-splitter diff-splitter" role="separator" tabindex="0" aria-label="调整原始与新的 JSON 宽度" aria-orientation="vertical" aria-controls="diff-text-panel diff-view-panel" aria-valuemin="20" aria-valuemax="80" aria-valuenow="50" title="拖动调整宽度，双击恢复均分" hidden></div>
+                        </div>
+                    </section>
                 </section>
                 <span id="json-validity" class="validity neutral" hidden></span><span id="json-stats" hidden></span>
             </section>

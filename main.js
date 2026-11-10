@@ -5,6 +5,7 @@ const TIMEZONE_FALLBACK = [
     ['洛杉矶', 'America/Los_Angeles'], ['悉尼', 'Australia/Sydney'],
 ];
 const STORAGE_KEY = 'emice-time-history-v2';
+const JSON_STORAGE_KEY = 'emice-json-draft-v1';
 const copyFeedback = new WeakMap();
 const timezoneIds = new Map(TIMEZONE_FALLBACK);
 const jsonSearchState = { query: '', panel: 'text', marks: [], index: -1 };
@@ -15,7 +16,13 @@ let timeHistory = loadHistory();
 let currentTimeTimer = null;
 let cachedJson = null;
 let renderedJsonRaw = null;
+let savedJsonDraft = '';
 let treeSearchQuery = '';
+let jsonPathSource = '';
+let treeCopyValues = [];
+let activeJsonFeature = '';
+let jsonPathModule = null;
+let jsonDiffModule = null;
 
 function getInvoke() {
     if (invokeApi) return invokeApi;
@@ -77,6 +84,30 @@ function loadHistory() {
 function saveHistory() {
     timeHistory = timeHistory.slice(0, 60);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(timeHistory));
+}
+
+function loadJsonDraft() {
+    const input = document.getElementById('json-input');
+    if (!input) return;
+    try {
+        input.value = localStorage.getItem(JSON_STORAGE_KEY) || '';
+        savedJsonDraft = input.value;
+    } catch (error) {
+        console.warn('读取上次 JSON 内容失败', error);
+    }
+    updateJsonTree();
+}
+
+function saveJsonDraft(value) {
+    if (value === savedJsonDraft) return;
+    try {
+        if (value) localStorage.setItem(JSON_STORAGE_KEY, value);
+        else localStorage.removeItem(JSON_STORAGE_KEY);
+        savedJsonDraft = value;
+    } catch (error) {
+        console.warn('保存 JSON 内容失败', error);
+        setStatus('JSON 内容未能保存到本地', 'error');
+    }
 }
 
 function normalizeTimestamp(value) {
@@ -231,12 +262,18 @@ function updateJsonValidity(result) {
     badge.textContent = 'JSON 有效'; badge.className = 'validity valid';
 }
 
-function nodeLabel(value, key, depth = 0) {
+function nodeLabel(value, key, depth = 0, copyNodes = []) {
     const type = Array.isArray(value) ? `Array(${value.length})` : value === null ? 'null' : typeof value;
     const title = key === null ? '<span class="tree-root-label">root</span>' : `<span class="tree-key">${escapeHtml(key)}</span><span class="tree-colon">:</span>`;
-    if (value !== null && typeof value === 'object') return `<details class="tree-node" open data-depth="${depth}"><summary>${title}<span class="tree-type">${type}</span></summary><div class="tree-children">${Object.entries(value).map(([childKey, childValue]) => nodeLabel(childValue, childKey, depth + 1)).join('')}</div></details>`;
+    const isContainer = value !== null && typeof value === 'object';
+    const nodeIndex = copyNodes.push(value) - 1;
+    const copyLabel = isContainer ? '复制节点 JSON' : '复制值';
+    const copyButton = `<button class="copy-icon-btn tree-copy-btn" data-node-index="${nodeIndex}" type="button" title="${copyLabel}" aria-label="${copyLabel}"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-copy"/></svg></button>`;
+    if (isContainer) {
+        return `<details class="tree-node" open data-depth="${depth}"><summary>${title}<span class="tree-type">${type}</span>${copyButton}</summary><div class="tree-children">${Object.entries(value).map(([childKey, childValue]) => nodeLabel(childValue, childKey, depth + 1, copyNodes)).join('')}</div></details>`;
+    }
     const rendered = typeof value === 'string' ? `"${escapeHtml(value)}"` : String(value);
-    return `<div class="tree-leaf tree-node" data-depth="${depth}"><span class="tree-key">${key === null ? '' : escapeHtml(key)}</span>${key === null ? '' : '<span class="tree-colon">:</span>'}<span class="tree-value type-${type}">${rendered}</span></div>`;
+    return `<div class="tree-leaf tree-node" data-depth="${depth}"><span class="tree-key">${key === null ? '' : escapeHtml(key)}</span>${key === null ? '' : '<span class="tree-colon">:</span>'}<span class="tree-value type-${type}">${rendered}</span>${copyButton}</div>`;
 }
 
 function renderJsonTree(result) {
@@ -248,11 +285,17 @@ function renderJsonTree(result) {
         tree.innerHTML = `<div class="tree-placeholder">${result.error ? 'JSON 格式有误，请切换到文本面板修正' : '粘贴 JSON'}</div>`;
         return;
     }
-    tree.innerHTML = nodeLabel(result.value, null);
+    treeCopyValues = [];
+    tree.innerHTML = nodeLabel(result.value, null, 0, treeCopyValues);
 }
 
 function updateJsonTree({ revealSearch = false } = {}) {
     const value = document.getElementById('json-input').value;
+    saveJsonDraft(value);
+    if (value !== jsonPathSource) {
+        jsonPathSource = value;
+        document.dispatchEvent(new Event('json-document-change'));
+    }
     const raw = value.trim();
     jsonStats(value);
     if (cachedJson?.raw !== raw) cachedJson = null;
@@ -260,6 +303,7 @@ function updateJsonTree({ revealSearch = false } = {}) {
         // Release the previous document even when the tree is hidden.
         jsonSearchState.marks = [];
         document.getElementById('json-tree').replaceChildren();
+        treeCopyValues = [];
         renderedJsonRaw = null;
         treeSearchQuery = '';
     }
@@ -274,6 +318,10 @@ function updateJsonTree({ revealSearch = false } = {}) {
 }
 
 function selectJsonPanel(panel) {
+    if (activeJsonFeature === 'diff') {
+        jsonDiffModule?.selectJsonDiffPanel(panel);
+        return;
+    }
     const showView = panel === 'view';
     document.getElementById('json-editor').hidden = showView;
     document.getElementById('json-preview').hidden = !showView;
@@ -296,10 +344,9 @@ function unescapeJsonText(value) {
     }
 }
 
-function jsonAction(action, button) {
+function jsonAction(action) {
     const input = document.getElementById('json-input');
     if (action === 'clear') { input.value = ''; updateJsonTree(); return; }
-    if (action === 'copy') { copyText(input.value, button); return; }
     if (action === 'escape') { input.value = JSON.stringify(input.value).slice(1, -1); updateJsonTree(); return; }
     if (action === 'unescape') {
         if (!input.value) return;
@@ -464,7 +511,107 @@ async function setupWindowControls() {
     }
 }
 
+function syncJsonFeature() {
+    const comparing = activeJsonFeature === 'diff';
+    document.getElementById('json-diff').hidden = !comparing;
+    document.getElementById('json-source-content').hidden = comparing;
+    document.getElementById('json-source-tools').hidden = comparing;
+    document.getElementById('diff-tools').hidden = !comparing;
+    document.getElementById('json-base-toolbar').classList.toggle('is-comparing', comparing);
+    const selectedPanel = comparing ? jsonDiffModule?.getJsonDiffPanel() ?? 'text'
+        : document.getElementById('json-preview').hidden ? 'text' : 'view';
+    document.querySelectorAll('[data-json-panel]').forEach(tab => {
+        const selected = tab.dataset.jsonPanel === selectedPanel;
+        tab.setAttribute('aria-selected', String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        tab.setAttribute('aria-controls', comparing ? `diff-${tab.dataset.jsonPanel}-panel`
+            : tab.dataset.jsonPanel === 'text' ? 'json-editor' : 'json-preview');
+    });
+    document.querySelectorAll('[data-json-feature]').forEach(option => {
+        const selected = option.dataset.jsonFeature === activeJsonFeature;
+        option.setAttribute('aria-selected', String(selected));
+        if (selected) {
+            document.getElementById('json-feature-current-label').textContent = option.querySelector('.tool-select-label').textContent;
+            document.getElementById('json-feature-current-icon').setAttribute('href', option.querySelector('use').getAttribute('href'));
+        }
+    });
+    document.getElementById('titlebar-json-actions').hidden = comparing || !document.getElementById('json-tab').classList.contains('active');
+}
+
+async function selectJsonFeature(feature) {
+    if (activeJsonFeature === feature) return;
+    activeJsonFeature = feature;
+    const selected = activeJsonFeature;
+    if (selected !== 'path') jsonPathModule?.setJsonPathEnabled(false);
+    if (selected !== 'diff') jsonDiffModule?.closeJsonDiff();
+    syncJsonFeature();
+    try {
+        if (selected === 'path') {
+            jsonPathModule = await import('./jsonpath-panel.js');
+            if (activeJsonFeature === selected) jsonPathModule.setJsonPathEnabled(true, copyText);
+        } else if (selected === 'diff') {
+            jsonDiffModule = await import('./json-diff-panel.js');
+            if (activeJsonFeature === selected) {
+                jsonDiffModule.openJsonDiff(copyText);
+                syncJsonFeature();
+            }
+        }
+    } catch (error) {
+        if (activeJsonFeature !== selected) return;
+        activeJsonFeature = '';
+        syncJsonFeature();
+        console.error('打开 JSON 功能失败', error);
+        setStatus(`${selected === 'path' ? 'JSONPath' : 'JSON 对比'} 未能打开，请重试`, 'error');
+    }
+}
+
+function setupSelectMenu(wrapper, button, menu, options, onSelect) {
+    const close = () => {
+        menu.hidden = true;
+        button.setAttribute('aria-expanded', 'false');
+    };
+    const open = (focusSelected = false) => {
+        menu.hidden = false;
+        button.setAttribute('aria-expanded', 'true');
+        if (focusSelected) (options.find(option => option.getAttribute('aria-selected') === 'true') || options[0])?.focus();
+    };
+    button.addEventListener('click', () => { if (menu.hidden) open(); else close(); });
+    button.addEventListener('keydown', event => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault(); open(true);
+        } else if (event.key === 'Escape' && !menu.hidden) {
+            event.preventDefault(); close();
+        }
+    });
+    options.forEach((option, index) => {
+        option.addEventListener('click', () => {
+            close(); button.focus(); onSelect(option);
+        });
+        option.addEventListener('keydown', event => {
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                options[(index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length]?.focus();
+            } else if (event.key === 'Home' || event.key === 'End') {
+                event.preventDefault();
+                (event.key === 'Home' ? options[0] : options.at(-1))?.focus();
+            } else if (event.key === 'Escape') {
+                event.preventDefault(); close(); button.focus();
+            } else if (event.key === 'Tab') close();
+        });
+    });
+    document.addEventListener('pointerdown', event => {
+        if (!menu.hidden && !wrapper.contains(event.target)) close();
+    });
+    wrapper.addEventListener('focusout', event => {
+        if (!wrapper.contains(event.relatedTarget)) close();
+    });
+    document.addEventListener('tool-change', close);
+}
+
 function setupEvents() {
+    document.addEventListener('json-diff-panel-change', () => {
+        if (activeJsonFeature === 'diff') syncJsonFeature();
+    });
     document.addEventListener('visibilitychange', syncCurrentTimeTimer);
     window.addEventListener('pagehide', () => {
         clearInterval(currentTimeTimer);
@@ -475,17 +622,6 @@ function setupEvents() {
     const toolSelectBtn = document.getElementById('tool-select-btn');
     const toolSelectMenu = document.getElementById('tool-select-menu');
     const toolOptions = [...toolSelectMenu.querySelectorAll('.tool-select-option')];
-    const closeToolMenu = () => {
-        toolSelectMenu.hidden = true;
-        toolSelectBtn.setAttribute('aria-expanded', 'false');
-    };
-    const openToolMenu = (focusSelected = false) => {
-        toolSelectMenu.hidden = false;
-        toolSelectBtn.setAttribute('aria-expanded', 'true');
-        if (focusSelected) {
-            (toolOptions.find((option) => option.getAttribute('aria-selected') === 'true') || toolOptions[0])?.focus();
-        }
-    };
     const selectTool = (tool) => {
         toolOptions.forEach((option) => {
             const selected = option.dataset.tool === tool;
@@ -498,52 +634,19 @@ function setupEvents() {
             }
         });
         document.querySelectorAll('.tab-content').forEach((item) => item.classList.toggle('active', item.id === `${tool}-tab`));
-        document.getElementById('titlebar-json-actions').hidden = tool !== 'json';
         document.getElementById('titlebar-time-actions').hidden = tool !== 'time';
+        syncJsonFeature();
+        document.dispatchEvent(new CustomEvent('tool-change', { detail: tool }));
         syncCurrentTimeTimer();
     };
-    toolSelectBtn.addEventListener('click', () => {
-        if (toolSelectMenu.hidden) openToolMenu();
-        else closeToolMenu();
-    });
-    toolSelectBtn.addEventListener('keydown', (event) => {
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-            event.preventDefault();
-            openToolMenu(true);
-        } else if (event.key === 'Escape' && !toolSelectMenu.hidden) {
-            event.preventDefault();
-            closeToolMenu();
-        }
-    });
-    toolOptions.forEach((option, index) => {
-        option.addEventListener('click', () => {
-            selectTool(option.dataset.tool);
-            closeToolMenu();
-            toolSelectBtn.focus();
-        });
-        option.addEventListener('keydown', (event) => {
-            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                event.preventDefault();
-                const next = toolOptions[(index + (event.key === 'ArrowDown' ? 1 : -1) + toolOptions.length) % toolOptions.length];
-                next?.focus();
-            } else if (event.key === 'Home') {
-                event.preventDefault();
-                toolOptions[0]?.focus();
-            } else if (event.key === 'End') {
-                event.preventDefault();
-                toolOptions[toolOptions.length - 1]?.focus();
-            } else if (event.key === 'Escape') {
-                event.preventDefault();
-                closeToolMenu();
-                toolSelectBtn.focus();
-            } else if (event.key === 'Tab') {
-                closeToolMenu();
-            }
-        });
-    });
-    document.addEventListener('pointerdown', (event) => {
-        if (!toolSelectMenu.hidden && !toolSelectWrap.contains(event.target)) closeToolMenu();
-    });
+    setupSelectMenu(toolSelectWrap, toolSelectBtn, toolSelectMenu, toolOptions, option => selectTool(option.dataset.tool));
+    setupSelectMenu(
+        document.getElementById('json-feature-select'),
+        document.getElementById('json-feature-select-btn'),
+        document.getElementById('json-feature-select-menu'),
+        [...document.querySelectorAll('[data-json-feature]')],
+        option => selectJsonFeature(option.dataset.jsonFeature),
+    );
     document.getElementById('time-direction-btn').addEventListener('click', (event) => {
         activeTimeMode = activeTimeMode === 'timestamp' ? 'datetime' : 'timestamp';
         document.getElementById('time-direction-arrow').textContent = activeTimeMode === 'timestamp' ? '→' : '←';
@@ -567,8 +670,17 @@ function setupEvents() {
     document.getElementById('time-input').addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); convertTimeEntry(); } });
     document.getElementById('clear-history-btn').addEventListener('click', () => { timeHistory = []; saveHistory(); renderHistory(); setStatus('历史已清空'); });
     document.querySelectorAll('.copy-btn').forEach((button) => button.addEventListener('click', () => copyText(document.getElementById(button.dataset.copyTarget).textContent, button)));
-    document.querySelectorAll('[data-json-action]').forEach((button) => button.addEventListener('click', () => jsonAction(button.dataset.jsonAction, button)));
+    document.querySelectorAll('[data-json-action]').forEach((button) => button.addEventListener('click', () => jsonAction(button.dataset.jsonAction)));
     document.getElementById('json-input').addEventListener('input', updateJsonTree);
+    const tree = document.getElementById('json-tree');
+    tree.addEventListener('click', (event) => {
+        const button = event.target.closest('.tree-copy-btn');
+        if (!button || !tree.contains(button)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const value = treeCopyValues[Number(button.dataset.nodeIndex)];
+        copyText(typeof value === 'string' ? value : JSON.stringify(value, null, 2), button);
+    });
     const searchInput = document.getElementById('json-search-input');
     searchInput.addEventListener('input', applyJsonSearch);
     searchInput.addEventListener('keydown', (event) => {
@@ -604,7 +716,7 @@ function setupEvents() {
 }
 
 async function init() {
-    setupEvents(); await setupWindowControls(); renderHistory(); await loadTimezones(); syncCurrentTimeTimer(); jsonStats(''); setStatus('就绪');
+    setupEvents(); loadJsonDraft(); await setupWindowControls(); renderHistory(); await loadTimezones(); syncCurrentTimeTimer(); setStatus('就绪');
 }
 
 document.addEventListener('DOMContentLoaded', init);
