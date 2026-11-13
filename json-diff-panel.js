@@ -1,4 +1,5 @@
 import { setupPanelSplitter } from './panel-splitter.js';
+import { setupJsonTextEditor } from './json-text-editor.js';
 
 const STORAGE_KEY = 'emice-json-diff-draft-v1';
 let panel;
@@ -23,6 +24,7 @@ export function getJsonDiffPanel() {
 function createPanel(copyText) {
     const section = document.getElementById('json-diff');
     const inputs = ['left', 'right'].map(side => document.getElementById(`diff-${side}`));
+    const editors = inputs.map(input => setupJsonTextEditor(input));
     const status = document.getElementById('diff-status');
     const tree = document.getElementById('diff-tree');
     const textPanel = document.getElementById('diff-text-panel');
@@ -322,6 +324,7 @@ function createPanel(copyText) {
         if (value !== 'view') stopExpansion();
         activePanel = value;
         textPanel.hidden = value !== 'text';
+        if (value === 'text') editors.forEach(editor => editor.sync());
         viewPanel.hidden = value !== 'view';
         expandButton.hidden = value !== 'view';
         document.dispatchEvent(new Event('json-diff-panel-change'));
@@ -332,7 +335,7 @@ function createPanel(copyText) {
     try {
         const draft = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
         if (Array.isArray(draft) && draft.length === 2 && draft.every(value => typeof value === 'string')) {
-            inputs.forEach((input, index) => { input.value = draft[index]; });
+            editors.forEach((editor, index) => editor.setValue(draft[index]));
             savedDraft = JSON.stringify(draft);
         }
     } catch (_) { /* A damaged draft must not block opening the tool. */ }
@@ -345,14 +348,16 @@ function createPanel(copyText) {
         }
     });
     document.getElementById('diff-swap').addEventListener('click', () => {
-        [inputs[0].value, inputs[1].value] = [inputs[1].value, inputs[0].value]; schedule();
+        const values = inputs.map(input => input.value);
+        editors.forEach((editor, index) => editor.setValue(values[1 - index]));
+        schedule();
     });
     document.getElementById('diff-clear').addEventListener('click', () => {
-        inputs.forEach(input => { input.value = ''; });
+        editors.forEach(editor => editor.setValue(''));
         schedule(); clearTimeout(debounce); saveDraft(); invalidate(); selectPanel('text'); inputs[0].focus();
     });
     document.getElementById('diff-use-current').addEventListener('click', () => {
-        inputs[0].value = document.getElementById('json-input').value;
+        editors[0].setValue(document.getElementById('json-input').value);
         schedule();
     });
     expandButton.addEventListener('click', expandAll);

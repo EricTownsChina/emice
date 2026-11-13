@@ -5,6 +5,8 @@
 - 当前项目的 Tauri 2 活跃后端路径是 `src-tauri/`。
 - 实际命令处理与应用启动入口在 `src-tauri/src/main.rs`。
 - Tauri 配置入口在 `src-tauri/tauri.conf.json`。
+- macOS 构建会自动合并 `src-tauri/tauri.macos.conf.json`，使用左上角原生红黄绿按钮；Windows 使用基础配置和右侧自定义按钮。macOS 覆盖配置中的 `windows` 数组会整体替换基础数组，调整窗口尺寸时需同步两处。
+- JSON 原文、JSONPath 文本结果及对比两侧输入统一使用 `json-text-editor.js` 的 `setupJsonTextEditor`，共用软换行、逻辑行号和滚动同步。程序更新内容时调用 `setValue`；原文的格式化等操作在更新后调用 `sync`。
 - 根目录的 `src/main.rs` 与根 `Cargo.toml` 为历史路径，默认不应修改，除非明确在做 legacy/root crate 相关工作。
 
 ## 常见误区

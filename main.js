@@ -17,6 +17,7 @@ let currentTimeTimer = null;
 let cachedJson = null;
 let renderedJsonRaw = null;
 let savedJsonDraft = '';
+let jsonTextEditor = null;
 let treeSearchQuery = '';
 let jsonPathSource = '';
 let treeCopyValues = [];
@@ -273,6 +274,12 @@ function nodeLabel(value, key, depth = 0, copyNodes = []) {
         return `<details class="tree-node" open data-depth="${depth}"><summary>${title}<span class="tree-type">${type}</span>${copyButton}</summary><div class="tree-children">${Object.entries(value).map(([childKey, childValue]) => nodeLabel(childValue, childKey, depth + 1, copyNodes)).join('')}</div></details>`;
     }
     const rendered = typeof value === 'string' ? `"${escapeHtml(value)}"` : String(value);
+    // Long multiline values otherwise dominate the first WebKit layout and hide the rest of the tree.
+    // Keep the complete value in a closed details element so search and copying still use the source.
+    if (typeof value === 'string' && value.length > 1000) {
+        const preview = JSON.stringify(value.slice(0, 160)).slice(0, -1) + '…"';
+        return `<details class="tree-node tree-long-string" data-depth="${depth}"><summary>${title}<span class="tree-string-preview type-string">${escapeHtml(preview)}</span><span class="tree-type">${value.length} 字符</span>${copyButton}</summary><div class="tree-string-content"><span class="tree-value type-string">${rendered}</span></div></details>`;
+    }
     return `<div class="tree-leaf tree-node" data-depth="${depth}"><span class="tree-key">${key === null ? '' : escapeHtml(key)}</span>${key === null ? '' : '<span class="tree-colon">:</span>'}<span class="tree-value type-${type}">${rendered}</span>${copyButton}</div>`;
 }
 
@@ -298,6 +305,7 @@ function updateJsonTree({ revealSearch = false } = {}) {
     }
     const raw = value.trim();
     jsonStats(value);
+    jsonTextEditor?.sync();
     if (cachedJson?.raw !== raw) cachedJson = null;
     if (renderedJsonRaw !== null && renderedJsonRaw !== raw) {
         // Release the previous document even when the tree is hidden.
@@ -369,6 +377,30 @@ function jsonAction(action) {
     updateJsonTree();
 }
 
+function handleJsonSearchShortcut(event) {
+    if (event.defaultPrevented || event.isComposing || event.altKey || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'f') return;
+    if (!document.getElementById('json-tab').classList.contains('active') || document.getElementById('json-source-tools').hidden) return;
+    const searchInput = document.getElementById('json-search-input');
+    const jsonInput = document.getElementById('json-input');
+    let selectedText = '';
+    if (document.getElementById('json-preview').hidden) {
+        // Textarea selections are separate from the document selection and can remain after blur.
+        if (document.activeElement === jsonInput) selectedText = jsonInput.value.slice(jsonInput.selectionStart, jsonInput.selectionEnd);
+    } else if (document.activeElement !== searchInput) {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount && !selection.isCollapsed) {
+            const range = selection.getRangeAt(0);
+            const tree = document.getElementById('json-tree');
+            if (tree.contains(range.startContainer) && tree.contains(range.endContainer)) selectedText = selection.toString();
+        }
+    }
+    event.preventDefault();
+    if (selectedText) searchInput.value = selectedText;
+    searchInput.focus();
+    searchInput.select();
+    applyJsonSearch();
+}
+
 function findJsonMatches(text, query) {
     if (!query) return [];
     const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu');
@@ -386,13 +418,7 @@ function highlightJsonMatches(text, matches) {
 }
 
 function syncJsonHighlights() {
-    const input = document.getElementById('json-input');
-    const highlights = document.getElementById('json-highlights');
-    if (highlights.hidden || document.getElementById('json-editor').hidden) return;
-    highlights.style.width = `${input.clientWidth}px`;
-    highlights.style.height = `${input.clientHeight}px`;
-    highlights.scrollTop = input.scrollTop;
-    highlights.scrollLeft = input.scrollLeft;
+    jsonTextEditor?.sync();
 }
 
 function applyJsonSearch({ reveal = true } = {}) {
@@ -457,8 +483,15 @@ function revealJsonMatch(mark) {
             ancestor = ancestor.parentElement;
         }
     }
+    // A match inside a long value must first be revealed inside its own scroll area.
+    const stringViewport = isText ? null : mark.closest('.tree-string-content');
+    if (stringViewport) {
+        const target = mark.getClientRects()[0];
+        const bounds = stringViewport.getBoundingClientRect();
+        if (target) stringViewport.scrollTop += target.top - bounds.top - (stringViewport.clientHeight - target.height) / 2;
+    }
     const viewport = document.getElementById(isText ? 'json-input' : 'json-tree');
-    const target = mark.getClientRects()[0];
+    const target = stringViewport ? stringViewport.getBoundingClientRect() : mark.getClientRects()[0];
     if (!target || !viewport.clientHeight) return;
     const bounds = viewport.getBoundingClientRect();
     viewport.scrollTop += target.top - bounds.top - (viewport.clientHeight - target.height) / 2;
@@ -474,18 +507,27 @@ function moveJsonSearch(direction) {
 async function setupWindowControls() {
     const getCurrentWindow = window.__TAURI__?.window?.getCurrentWindow;
     if (typeof getCurrentWindow !== 'function') return;
+    const isMacOS = navigator.userAgent.includes('Mac');
+    document.documentElement.classList.toggle('platform-macos', isMacOS);
+    // macOS uses native traffic lights. Avoid custom controls and resize state queries.
+    if (isMacOS) return;
     const appWindow = getCurrentWindow();
     const maximizeButton = document.getElementById('window-maximize');
-    const syncMaximized = async () => {
-        try {
-            const maximized = await appWindow.isMaximized();
-            document.documentElement.classList.toggle('is-maximized', maximized);
-            maximizeButton.classList.toggle('is-maximized', maximized);
-            maximizeButton.title = maximized ? '还原' : '最大化';
-            maximizeButton.setAttribute('aria-label', maximizeButton.title);
-        } catch (error) {
-            console.error('读取窗口状态失败', error);
-        }
+    let pendingSync = null;
+    const syncMaximized = () => {
+        if (pendingSync) return pendingSync;
+        pendingSync = (async () => {
+            try {
+                const maximized = await appWindow.isMaximized();
+                document.documentElement.classList.toggle('is-maximized', maximized);
+                maximizeButton.classList.toggle('is-maximized', maximized);
+                maximizeButton.title = maximized ? '还原' : '最大化';
+                maximizeButton.setAttribute('aria-label', maximizeButton.title);
+            } catch (error) {
+                console.error('读取窗口状态失败', error);
+            }
+        })().finally(() => { pendingSync = null; });
+        return pendingSync;
     };
     document.getElementById('window-controls').hidden = false;
     const actions = {
@@ -681,6 +723,7 @@ function setupEvents() {
         const value = treeCopyValues[Number(button.dataset.nodeIndex)];
         copyText(typeof value === 'string' ? value : JSON.stringify(value, null, 2), button);
     });
+    document.addEventListener('keydown', handleJsonSearchShortcut);
     const searchInput = document.getElementById('json-search-input');
     searchInput.addEventListener('input', applyJsonSearch);
     searchInput.addEventListener('keydown', (event) => {
@@ -696,9 +739,6 @@ function setupEvents() {
     });
     document.getElementById('json-search-prev').addEventListener('click', () => moveJsonSearch(-1));
     document.getElementById('json-search-next').addEventListener('click', () => moveJsonSearch(1));
-    const jsonInput = document.getElementById('json-input');
-    jsonInput.addEventListener('scroll', syncJsonHighlights);
-    new ResizeObserver(syncJsonHighlights).observe(jsonInput);
     const panelTabs = [...document.querySelectorAll('[data-json-panel]')];
     panelTabs.forEach((tab, index) => {
         tab.addEventListener('click', () => selectJsonPanel(tab.dataset.jsonPanel));
@@ -716,6 +756,8 @@ function setupEvents() {
 }
 
 async function init() {
+    const { setupJsonTextEditor } = await import('./json-text-editor.js');
+    jsonTextEditor = setupJsonTextEditor(document.getElementById('json-input'), { highlights: document.getElementById('json-highlights') });
     setupEvents(); loadJsonDraft(); await setupWindowControls(); renderHistory(); await loadTimezones(); syncCurrentTimeTimer(); setStatus('就绪');
 }
 

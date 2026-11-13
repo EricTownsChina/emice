@@ -122,10 +122,8 @@
                     <div id="json-source-content" class="json-content">
                         <div class="json-workspace">
                             <div id="json-editor" class="json-editor-pane" role="tabpanel" aria-labelledby="json-text-tab">
-                                <div class="json-text-editor">
-                                    <pre id="json-highlights" class="json-highlights" aria-hidden="true" hidden></pre>
-                                    <textarea id="json-input" aria-label="JSON 输入" spellcheck="false" wrap="off" placeholder="粘贴 JSON"></textarea>
-                                </div>
+                                <pre id="json-highlights" class="json-highlights" aria-hidden="true" hidden></pre>
+                                <textarea id="json-input" aria-label="JSON 输入" spellcheck="false" wrap="soft" placeholder="粘贴 JSON"></textarea>
                             </div>
                             <div id="json-preview" class="json-preview-pane" role="tabpanel" aria-labelledby="json-view-tab" tabindex="0" hidden>
                                 <div id="json-tree" class="json-tree"><div class="tree-placeholder">粘贴 JSON</div></div>
@@ -152,7 +150,7 @@
                                 <button id="jsonpath-collapse" class="tool-btn" type="button" hidden>收起全部</button>
                             </div>
                             <div id="jsonpath-result-text" class="jsonpath-result-pane" role="tabpanel" aria-labelledby="jsonpath-text-tab">
-                                <textarea id="jsonpath-output" class="jsonpath-output" readonly wrap="off" spellcheck="false" aria-label="JSONPath 查询结果" placeholder="输入表达式查询 JSON"></textarea>
+                                <textarea id="jsonpath-output" class="jsonpath-output" readonly wrap="soft" spellcheck="false" aria-label="JSONPath 查询结果" placeholder="输入表达式查询 JSON"></textarea>
                             </div>
                             <div id="jsonpath-result-view" class="json-tree jsonpath-result-pane" role="tabpanel" aria-labelledby="jsonpath-view-tab" tabindex="0" hidden></div>
                         </section>
@@ -162,11 +160,11 @@
                             <div id="diff-text-panel" class="diff-text-panel" role="tabpanel" aria-labelledby="json-text-tab">
                                 <section class="diff-input-pane" aria-label="原始 JSON">
                                     <div class="pane-label"><span>原始 JSON</span><div class="diff-pane-tools"><button id="diff-use-current" class="tool-btn" type="button" title="填入 JSON 工具中的内容">使用当前 JSON</button><button class="copy-icon-btn" data-diff-copy="left" type="button" title="复制原始 JSON" aria-label="复制原始 JSON"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-copy"/></svg></button></div></div>
-                                    <textarea id="diff-left" aria-label="原始 JSON 输入" spellcheck="false" wrap="off" placeholder="粘贴原始 JSON"></textarea>
+                                    <textarea id="diff-left" aria-label="原始 JSON 输入" spellcheck="false" wrap="soft" placeholder="粘贴原始 JSON"></textarea>
                                 </section>
                                 <section class="diff-input-pane" aria-label="新的 JSON">
                                     <div class="pane-label"><span>新的 JSON</span><button class="copy-icon-btn" data-diff-copy="right" type="button" title="复制新的 JSON" aria-label="复制新的 JSON"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-copy"/></svg></button></div>
-                                    <textarea id="diff-right" aria-label="新的 JSON 输入" spellcheck="false" wrap="off" placeholder="粘贴新的 JSON"></textarea>
+                                    <textarea id="diff-right" aria-label="新的 JSON 输入" spellcheck="false" wrap="soft" placeholder="粘贴新的 JSON"></textarea>
                                 </section>
                             </div>
                             <div id="diff-view-panel" class="diff-view-panel" role="tabpanel" aria-labelledby="json-view-tab" hidden>

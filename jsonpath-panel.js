@@ -1,5 +1,6 @@
 import { setupJsonPathSplitter } from './jsonpath-splitter.js';
 import { createJsonPathTree } from './jsonpath-tree.js';
+import { setupJsonTextEditor } from './json-text-editor.js';
 
 const EXPRESSION_KEY = 'emice-jsonpath-expression-v1';
 let panel;
@@ -14,6 +15,7 @@ function createPanel(copyText) {
     const results = document.getElementById('jsonpath-result');
     const input = document.getElementById('jsonpath-input');
     const output = document.getElementById('jsonpath-output');
+    const outputEditor = setupJsonTextEditor(output);
     const status = document.getElementById('jsonpath-status');
     const pageLabel = document.getElementById('jsonpath-page');
     const previous = document.getElementById('jsonpath-prev');
@@ -72,6 +74,7 @@ function createPanel(copyText) {
             tab.setAttribute('aria-selected', String(selected));
             tab.tabIndex = selected ? 0 : -1;
         });
+        outputEditor.sync();
         showTree();
     }
 
@@ -108,7 +111,7 @@ function createPanel(copyText) {
 
     function reset(message = '输入表达式查询 JSON') {
         clearTree(message);
-        output.value = '';
+        outputEditor.setValue('');
         output.placeholder = message;
         status.textContent = message;
         status.classList.remove('is-error');
@@ -152,9 +155,7 @@ function createPanel(copyText) {
                 copyText(data.text, copy);
                 return;
             }
-            output.value = data.text;
-            output.scrollTop = 0;
-            output.scrollLeft = 0;
+            outputEditor.setValue(data.text);
             resultData = data;
             treeRendered = false;
             showTree();
@@ -188,7 +189,7 @@ function createPanel(copyText) {
         const previousStatus = status.textContent;
         const previousDisabled = previous.disabled;
         const nextDisabled = next.disabled;
-        if (!copying) { clearTree('正在查询…'); output.value = ''; }
+        if (!copying) { clearTree('正在查询…'); outputEditor.setValue(''); }
         status.classList.remove('is-error');
         input.removeAttribute('aria-invalid');
         status.textContent = '正在查询…';
